@@ -5,7 +5,7 @@
 | Einstiegspunkt                   | `public static void main(String[] args)`                                             |
 | Importe                          | `import java.util.Scanner;`, `import java.util.List;`, `import java.util.ArrayList;` |
 | Ausgaben (Konsole)               | `System.out.println(...)`, `System.out.print(...)`                                   |
-| Datentypen (primitiv + Referenz) | `int`, `double`, `boolean`, `char`, `String`                                         |
+| Datentypen (primitiv und Referenz) | `int`, `double`, `boolean`, `char`, `String`                                       |
 | Variablen                        | `int zahl = 5;`, `String name = "unbekannt";`                                        |
 | Konstanten (`final`)             | `private static final int PERSON_STANDARDALTER = 25;`                                |
 | `static` vs. Instanz             | `berechneSumme(...)` *(static)* vs. `person.begruesse()` *(Instanz)*                 |
@@ -17,14 +17,14 @@
 | Arrays (feste Größe)             | `int[] zahlen = {1, 2, 3, 4, 5};`                                                    |
 | Schleifen (for-each)             | `for (int z : zahlen) { ... }`                                                       |
 | Schleifen (while)                | `while (i < 3) { ... }`                                                              |
-| Collections / Listen             | `List<String> namen = new ArrayList<>();`, `namen.add(...)`                          |
-| Methoden (Parameter + Return)    | `public static int berechneSumme(int a, int b) { return a + b; }`                    |
+| Collections/Listen               | `List<String> namen = new ArrayList<>();`, `namen.add(...)`                          |
+| Methoden (Parameter und Return)  | `public static int berechneSumme(int a, int b) { return a + b; }`                    |
 | Klassen/Objekte (OOP)            | `class Person`, `Person person = new Person(...);`                                   |
 | Konstruktor                      | `public Person(String name, int alter) { ... }`                                      |
 | Kapselung (private Felder)       | `private String name;`, `private int alter;`                                         |
-| Getter/Setter                    | `getName()`, `setName(...)`                                                          |
+| Getter und Setter                | `getName()`, `setName(...)`                                                          |
 | Objekt-Zustand ändern            | `person.hatGeburtstag();` *(alter++)*                                                |
-| `toString()` + `@Override`       | `@Override public String toString() { ... }` und `System.out.println(person);`       |
+| `toString()` und `@Override`     | `@Override public String toString() { ... }` und `System.out.println(person);`       |
 | String-Vergleich korrekt         | `"unbekannt".equals(name)` *(statt `==`)*                                            |
 | `null`-Grundlage                 | `Person maybeNull = null; if (maybeNull == null) { ... }`                            |
 | Ressourcen sauber schließen      | `try-with-resources` schließt `Scanner` automatisch                                  |
