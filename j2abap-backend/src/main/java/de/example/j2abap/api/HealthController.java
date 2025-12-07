@@ -9,7 +9,7 @@ import java.util.Map;
 public class HealthController {
 
   // Damit die Startseite NICHT "Whitelabel 404" zeigt:
-  @GetMapping({"/"})
+  @GetMapping({"/api/health", "/api/health/"})
   public Map<String, String> index() {
     return Map.of(
         "status", "ok",
@@ -24,3 +24,4 @@ public class HealthController {
     return Map.of("status", "ok");
   }
 }
+
