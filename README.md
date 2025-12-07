@@ -5,7 +5,6 @@ Frontend läuft auf **GitHub Pages**, Backend als **Spring Boot REST API** (z. B
 
 > Hinweis: Das Projekt ist ein **Subset-Translator**. Nicht jeder Java-Konstruktion entspricht 1 zu 1 ABAP. Unbekannte oder komplexe Elemente werden als `TODO` markiert.
 
----
 
 ## Features
 
@@ -25,7 +24,6 @@ Frontend läuft auf **GitHub Pages**, Backend als **Spring Boot REST API** (z. B
   - Status/LED-Anzeige
   - Reset-Button
 
----
 
 ## Demo
 
