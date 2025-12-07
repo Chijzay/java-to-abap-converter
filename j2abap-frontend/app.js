@@ -1,7 +1,4 @@
-const API_BASE =
-  window.API_BASE ||
-  document.querySelector('meta[name="api-base"]')?.content ||
-  "https://scattered-lebbie-steven-illg-it-f8b8abdf.koyeb.app";
+const API_BASE = "https://scattered-lebbie-steven-illg-it-f8b8abdf.koyeb.app";
 
 const $in = document.getElementById("in");
 const $out = document.getElementById("out");
