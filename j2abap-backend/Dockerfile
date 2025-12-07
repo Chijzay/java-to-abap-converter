@@ -7,12 +7,8 @@ COPY j2abap-backend/pom.xml ./pom.xml
 RUN mvn -q -DskipTests dependency:go-offline
 
 # Dann Source
-COPY j2abap-backend/src ./src
-
-# Debug: zeig ob die Klasse da ist
-RUN ls -la src/main/java/de/example/j2abap \
- && test -f src/main/java/de/example/j2abap/JavaToAbapTranslator.java \
- && echo "Translator file OK"
+COPY j2abap-backend/src ./src 
+RUN mvn -q -DskipTests package
 
 # -------- runtime stage --------
 FROM eclipse-temurin:21-jre
