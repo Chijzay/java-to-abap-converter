@@ -2,14 +2,14 @@ package de.example.j2abap;
 
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.body.*;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.stmt.*;
 import org.springframework.stereotype.Service;
 
 import java.util.Locale;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 @Service
 public class JavaToAbapTranslator {
@@ -42,6 +42,7 @@ public class JavaToAbapTranslator {
   // ---------------------------
   private String translateSnippetInternal(String src) {
     StringBuilder out = new StringBuilder();
+
     try {
       BlockStmt block = StaticJavaParser.parseBlock("{\n" + (src == null ? "" : src) + "\n}");
       for (Statement st : block.getStatements()) {
@@ -51,7 +52,8 @@ public class JavaToAbapTranslator {
       out.append("Parse error (Java). Tipp: Snippet braucht gültige Statements (meist mit ;).").append("\n");
       out.append(shortMessage(e)).append("\n");
     }
-    return AbapFormatter.format(out.toString());
+
+    return out.toString().trim() + "\n";
   }
 
   // ---------------------------
@@ -63,78 +65,44 @@ public class JavaToAbapTranslator {
     try {
       CompilationUnit cu = StaticJavaParser.parse(src);
 
-      Optional<ClassOrInterfaceDeclaration> clsOpt = cu.findFirst(ClassOrInterfaceDeclaration.class);
+      Optional<ClassOrInterfaceDeclaration> clsOpt =
+          cu.findFirst(ClassOrInterfaceDeclaration.class);
+
       if (clsOpt.isEmpty()) {
-        return AbapFormatter.format("Parse error (Java). Tipp: Class erwartet eine Java-Datei mit class.\n");
+        return "Parse error (Java). Tipp: Class erwartet eine Java-Datei mit class.\n";
       }
 
       ClassOrInterfaceDeclaration cls = clsOpt.get();
       String javaName = cls.getNameAsString();
       String abapName = "zcl_" + toSnakeLower(javaName);
 
-      // --- Definition ---
+      // Definition
       out.append("CLASS ").append(abapName).append(" DEFINITION PUBLIC FINAL CREATE PUBLIC.\n");
       out.append("  PUBLIC SECTION.\n");
 
-      // Methoden
       for (MethodDeclaration md : cls.getMethods()) {
         out.append("    METHODS ").append(md.getNameAsString());
+
         if (!md.getParameters().isEmpty()) {
           out.append(" IMPORTING");
           md.getParameters().forEach(p ->
               out.append(" ").append(p.getNameAsString())
-                  .append(" TYPE ").append(mapType(p.getTypeAsString()))
+                 .append(" TYPE ").append(mapType(p.getTypeAsString()))
           );
         }
+
         if (!md.getType().isVoidType()) {
           out.append(" RETURNING VALUE(rv_result) TYPE ").append(mapType(md.getTypeAsString()));
         }
-        out.append(".\n");
-      }
 
-      // Konstruktor (nur 1: ABAP hat keinen Overload wie Java)
-      if (!cls.getConstructors().isEmpty()) {
-        ConstructorDeclaration cd = cls.getConstructors().get(0);
-        out.append("    METHODS constructor");
-        if (!cd.getParameters().isEmpty()) {
-          out.append(" IMPORTING");
-          cd.getParameters().forEach(p ->
-              out.append(" ").append(p.getNameAsString())
-                  .append(" TYPE ").append(mapType(p.getTypeAsString()))
-          );
-        }
         out.append(".\n");
-        if (cls.getConstructors().size() > 1) {
-          out.append("    \" TODO: Weitere Java-Konstruktoren (Overloads) manuell zusammenführen.\n");
-        }
-      }
-
-      // --- Attribute ---
-      out.append("  PRIVATE SECTION.\n");
-      for (FieldDeclaration fd : cls.getFields()) {
-        for (VariableDeclarator v : fd.getVariables()) {
-          String name = v.getNameAsString();
-          String type = mapType(fd.getElementType().asString());
-          out.append("    DATA ").append(name).append(" TYPE ").append(type).append(".\n");
-        }
       }
 
       out.append("ENDCLASS.\n\n");
 
-      // --- Implementation ---
+      // Implementation
       out.append("CLASS ").append(abapName).append(" IMPLEMENTATION.\n");
 
-      // Konstruktor-Body
-      if (!cls.getConstructors().isEmpty()) {
-        ConstructorDeclaration cd = cls.getConstructors().get(0);
-        out.append("  METHOD constructor.\n");
-        for (Statement st : cd.getBody().getStatements()) {
-          translateStatement(st, out, 2);
-        }
-        out.append("  ENDMETHOD.\n\n");
-      }
-
-      // Methoden-Body
       for (MethodDeclaration md : cls.getMethods()) {
         out.append("  METHOD ").append(md.getNameAsString()).append(".\n");
 
@@ -156,30 +124,28 @@ public class JavaToAbapTranslator {
       out.append(shortMessage(e)).append("\n");
     }
 
-    return AbapFormatter.format(out.toString());
+    return out.toString();
   }
 
   // ---------------------------
-  // STATEMENTS (inkl. while/for/foreach/switch + comments + break handling)
+  // STATEMENTS (minimal / old behavior)
   // ---------------------------
   private void translateStatement(Statement st, StringBuilder out, int indent) {
     if (st == null) return;
 
-    st.getComment().ifPresent(c -> {
-      String txt = (c.getContent() == null ? "" : c.getContent().trim());
-      if (!txt.isBlank()) emit(out, indent, "\" " + txt.replace("\n", " "));
-    });
-
     if (st.isBlockStmt()) {
-      for (Statement inner : st.asBlockStmt().getStatements()) translateStatement(inner, out, indent);
+      for (Statement inner : st.asBlockStmt().getStatements()) {
+        translateStatement(inner, out, indent);
+      }
       return;
     }
+
     if (st.isEmptyStmt()) return;
 
-    // ✅ break in switch wird in ABAP nicht gebraucht -> einfach ignorieren
-    if (st.isBreakStmt()) return;
-
-    if (st.isExpressionStmt()) { translateExpressionStmt(st.asExpressionStmt(), out, indent); return; }
+    if (st.isExpressionStmt()) {
+      translateExpressionStmt(st.asExpressionStmt(), out, indent);
+      return;
+    }
 
     if (st.isReturnStmt()) {
       ReturnStmt rs = st.asReturnStmt();
@@ -200,70 +166,12 @@ public class JavaToAbapTranslator {
       return;
     }
 
-    if (st.isWhileStmt()) {
-      WhileStmt ws = st.asWhileStmt();
-      emit(out, indent, "WHILE " + expr(ws.getCondition()) + ".");
-      translateStatement(ws.getBody(), out, indent + 2);
-      emit(out, indent, "ENDWHILE.");
-      return;
-    }
-
-    if (st.isForEachStmt()) {
-      ForEachStmt fes = st.asForEachStmt();
-      String var = fes.getVariable().getVariable(0).getNameAsString();
-      String iterable = expr(fes.getIterable());
-      emit(out, indent, "LOOP AT " + iterable + " INTO DATA(" + var + ").");
-      translateStatement(fes.getBody(), out, indent + 2);
-      emit(out, indent, "ENDLOOP.");
-      return;
-    }
-
-    if (st.isForStmt()) {
-      ForStmt fs = st.asForStmt();
-      String times = tryExtractDoTimes(fs);
-      if (times != null) {
-        emit(out, indent, "DO " + times + " TIMES.");
-        translateStatement(fs.getBody(), out, indent + 2);
-        emit(out, indent, "ENDDO.");
-      } else {
-        emit(out, indent, "\" TODO statement: For statement (manual rewrite needed)");
-      }
-      return;
-    }
-
-    if (st.isSwitchStmt()) {
-      SwitchStmt ss = st.asSwitchStmt();
-      emit(out, indent, "CASE " + expr(ss.getSelector()) + ".");
-
-      for (SwitchEntry entry : ss.getEntries()) {
-        if (entry.getLabels().isEmpty()) {
-          emit(out, indent + 2, "WHEN OTHERS.");
-        } else {
-          String whenLine = entry.getLabels().stream()
-              .map(this::caseLabel)
-              .collect(Collectors.joining(" OR "));
-          emit(out, indent + 2, "WHEN " + whenLine + ".");
-        }
-
-        for (Statement es : entry.getStatements()) {
-          translateStatement(es, out, indent + 4);
-        }
-      }
-
-      emit(out, indent, "ENDCASE.");
-      return;
-    }
-
+    // Alles andere: TODO (wie früher)
     emit(out, indent, "\" TODO statement: " + prettyNodeName(st.getClass().getSimpleName()));
   }
 
   private void translateExpressionStmt(ExpressionStmt es, StringBuilder out, int indent) {
     Expression e = es.getExpression();
-
-    es.getComment().ifPresent(c -> {
-      String txt = (c.getContent() == null ? "" : c.getContent().trim());
-      if (!txt.isBlank()) emit(out, indent, "\" " + txt.replace("\n", " "));
-    });
 
     if (e.isVariableDeclarationExpr()) {
       VariableDeclarationExpr vde = e.asVariableDeclarationExpr();
@@ -278,18 +186,7 @@ public class JavaToAbapTranslator {
 
     if (e.isAssignExpr()) {
       AssignExpr ae = e.asAssignExpr();
-
-      // ✅ this.day = day; -> me->day = day.
-      String target;
-      if (ae.getTarget().isFieldAccessExpr()) {
-        FieldAccessExpr fa = ae.getTarget().asFieldAccessExpr();
-        if (fa.getScope().isThisExpr()) target = "me->" + fa.getNameAsString();
-        else target = fa.getNameAsString();
-      } else {
-        target = expr(ae.getTarget());
-      }
-
-      emit(out, indent, target + " = " + expr(ae.getValue()) + ".");
+      emit(out, indent, expr(ae.getTarget()) + " = " + expr(ae.getValue()) + ".");
       return;
     }
 
@@ -308,7 +205,7 @@ public class JavaToAbapTranslator {
   }
 
   // ---------------------------
-  // Expressions
+  // EXPR (minimal)
   // ---------------------------
   private String expr(Expression e) {
     if (e == null) return "''";
@@ -372,33 +269,6 @@ public class JavaToAbapTranslator {
     return false;
   }
 
-  // ✅ case MONDAY -> 'MONDAY' (enum cases als Strings für ABAP-Skeleton)
-  private String caseLabel(Expression label) {
-    if (label == null) return "''";
-    if (label.isNameExpr()) return "'" + label.asNameExpr().getNameAsString() + "'";
-    if (label.isFieldAccessExpr()) return "'" + label.asFieldAccessExpr().getNameAsString() + "'";
-    if (label.isStringLiteralExpr() || label.isCharLiteralExpr() || label.isIntegerLiteralExpr()) return expr(label);
-    return expr(label);
-  }
-
-  private String tryExtractDoTimes(ForStmt fs) {
-    try {
-      if (fs.getCompare().isEmpty()) return null;
-      Expression cmp = fs.getCompare().get();
-      if (!cmp.isBinaryExpr()) return null;
-
-      BinaryExpr be = cmp.asBinaryExpr();
-      if (!(be.getOperator() == BinaryExpr.Operator.LESS || be.getOperator() == BinaryExpr.Operator.LESS_EQUALS)) return null;
-
-      Expression right = be.getRight();
-      if (!right.isIntegerLiteralExpr()) return null;
-
-      return right.asIntegerLiteralExpr().getValue();
-    } catch (Exception ignored) {
-      return null;
-    }
-  }
-
   // ---------------------------
   // Helpers
   // ---------------------------
@@ -419,7 +289,7 @@ public class JavaToAbapTranslator {
       case "double", "Double", "float", "Float" -> "f";
       case "boolean", "Boolean" -> "abap_bool";
       case "String" -> "string";
-      default -> "string"; // Enums & alles andere als Skeleton erstmal string
+      default -> "string";
     };
   }
 
