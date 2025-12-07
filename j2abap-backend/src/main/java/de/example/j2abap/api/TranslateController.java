@@ -9,7 +9,11 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api")
 public class TranslateController {
 
-  private final JavaToAbapTranslator translator = new JavaToAbapTranslator();
+  private final JavaToAbapTranslator translator;
+
+  public TranslateController(JavaToAbapTranslator translator) {
+    this.translator = translator;
+  }
 
   @PostMapping(
       path = {"/translate", "/translate/"},
