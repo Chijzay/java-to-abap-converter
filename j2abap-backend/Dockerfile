@@ -7,7 +7,13 @@ COPY j2abap-backend/pom.xml ./pom.xml
 RUN mvn -q -DskipTests dependency:go-offline
 
 # Dann Source
-COPY j2abap-backend/src ./src 
+COPY j2abap-backend/src ./src
+
+RUN echo "---- HealthController in build image ----" \
+ && ls -la src/main/java/de/example/j2abap/api \
+ && wc -l src/main/java/de/example/j2abap/api/HealthController.java \
+ && nl -ba src/main/java/de/example/j2abap/api/HealthController.java | sed -n '1,120p'
+
 RUN mvn -q -DskipTests package
 
 # -------- runtime stage --------
