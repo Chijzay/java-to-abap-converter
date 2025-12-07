@@ -18,10 +18,4 @@ public class HealthController {
     );
   }
 
-  // Wichtig: beide Varianten zulassen (mit und ohne Slash am Ende)
-  @GetMapping({"/api/health", "/api/health/"})
-  public Map<String, String> health() {
-    return Map.of("status", "ok");
-  }
 }
-
