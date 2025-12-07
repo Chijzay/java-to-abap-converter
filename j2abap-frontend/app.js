@@ -27,6 +27,17 @@ if (y > 10) {
 } else {
   System.out.println(0);
 }`,
+    snippet_switch: `int day = 5;
+switch (day) {
+  case 1:
+    System.out.println("Monday");
+    break;
+  case 5:
+    System.out.println("Friday");
+    break;
+  default:
+    System.out.println("Other");
+}`,
   class_simple: `public class Demo {
   int plusOne(int x) { 
   return x + 1; 
