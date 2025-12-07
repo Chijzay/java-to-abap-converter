@@ -290,6 +290,7 @@ function stripNoisyStacktrace(msg) {
 
 /* ===== Output actions ===== */
 function clearOutput() {
+  // Placeholder soll erscheinen -> value leer lassen (textarea-placeholder wird angezeigt)
   $out.value = "";
   highlightAbap("");
   $copy.disabled = true;
@@ -331,7 +332,9 @@ function friendlyNetworkMessage(e){
 async function doTranslate() {
   setBusy(true);
   setStatus("übersetze…", "idle");
-  clearOutput();
+
+  // ✅ WICHTIG: NICHT clearOutput() hier!
+  // -> so bleibt das alte Ergebnis stehen und der Placeholder erscheint nicht beim Laden.
 
   const mode = getMode();
   const sanity = modeSanityCheck(mode, $in.value);
@@ -405,6 +408,13 @@ $in.addEventListener("input", () => {
   highlightJava($in.value);
   setAutoBadge();
   updateGutter($inGutter, $in);
+
+  // ✅ Wenn Input komplett leer ist -> Output auf Placeholder zurücksetzen
+  if (($in.value || "").trim() === "") {
+    clearOutput();
+    setStatus("bereit", "idle");
+    syncAllScroll();
+  }
 });
 
 $in.addEventListener("scroll", () => {
@@ -457,7 +467,7 @@ $reset.addEventListener("click", () => {
   highlightJava("");
   setAutoBadge();
   updateGutter($inGutter, $in);
-  clearOutput();
+  clearOutput(); // ✅ Reset soll Placeholder zeigen
   setStatus("bereit", "idle");
   syncAllScroll();
 });
