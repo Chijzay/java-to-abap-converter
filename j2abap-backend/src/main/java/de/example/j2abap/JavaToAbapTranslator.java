@@ -10,7 +10,6 @@ import com.github.javaparser.ast.comments.LineComment;
 import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.stmt.*;
 import org.springframework.stereotype.Service;
-import com.github.javaparser.ast.Modifier;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -313,18 +312,26 @@ public class JavaToAbapTranslator {
   }
 
   private enum Section { PUBLIC, PROTECTED, PRIVATE }
-
-private Section sectionOf(BodyDeclaration<?> d) {
-  if (d == null) return Section.PUBLIC;
-
-  // JavaParser provides modifiers on body declarations (fields, methods, constructors, etc.)
-  if (d.hasModifier(Modifier.Keyword.PUBLIC)) return Section.PUBLIC;
-  if (d.hasModifier(Modifier.Keyword.PROTECTED)) return Section.PROTECTED;
-  if (d.hasModifier(Modifier.Keyword.PRIVATE)) return Section.PRIVATE;
-
-  // package-private: no direct ABAP equivalent; choose PROTECTED (safer than public)
-  return Section.PROTECTED;
-}
+  
+  private Section sectionOf(BodyDeclaration<?> d) {
+    if (d == null) return Section.PUBLIC;
+    
+    // Robust across JavaParser versions: use getModifiers()
+    try {
+      // Most versions: getModifiers() returns NodeList<Modifier>
+      for (var m : d.getModifiers()) {
+        String kw = m.getKeyword().asString(); // "public", "protected", "private", ...
+        if ("public".equals(kw)) return Section.PUBLIC;
+        if ("protected".equals(kw)) return Section.PROTECTED;
+        if ("private".equals(kw)) return Section.PRIVATE;
+      }
+    }catch (Exception ignored) {
+    // fallback below
+    }
+    
+    // package-private -> no direct ABAP equivalent; choose PROTECTED (safer than public)
+    return Section.PROTECTED;
+  }
 
   private void emitSection(
       StringBuilder out,
