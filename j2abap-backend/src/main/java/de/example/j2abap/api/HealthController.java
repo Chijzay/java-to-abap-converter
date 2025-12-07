@@ -10,8 +10,8 @@ import java.util.Map;
 @RequestMapping("/api")
 public class HealthController {
 
-  @GetMapping({"/health", "/health/"})
-  public Map<String, String> health() {
-    return Map.of("status", "ok");
-  }
+    @GetMapping({"/health", "/health/"})
+    public Map<String, String> health() {
+        return Map.of("status", "ok");
+    }
 }
