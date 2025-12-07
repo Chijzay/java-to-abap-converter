@@ -1,4 +1,4 @@
-package de.example.j2abap.api;
+package de.example.j2abap;
 
 import de.example.j2abap.JavaToAbapTranslator;
 import org.springframework.http.MediaType;
