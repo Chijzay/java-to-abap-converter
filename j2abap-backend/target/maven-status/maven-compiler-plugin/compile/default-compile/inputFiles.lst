@@ -1,0 +1,12 @@
+C:\Users\bztyl\OneDrive\Desktop\java-to-abap\j2abap-backend\src\main\java\de\example\j2abap\AbapEmitter.java
+C:\Users\bztyl\OneDrive\Desktop\java-to-abap\j2abap-backend\src\main\java\de\example\j2abap\api\ApiApplication.java
+C:\Users\bztyl\OneDrive\Desktop\java-to-abap\j2abap-backend\src\main\java\de\example\j2abap\api\ApiExceptionHandler.java
+C:\Users\bztyl\OneDrive\Desktop\java-to-abap\j2abap-backend\src\main\java\de\example\j2abap\api\CorsConfig.java
+C:\Users\bztyl\OneDrive\Desktop\java-to-abap\j2abap-backend\src\main\java\de\example\j2abap\api\HealthController.java
+C:\Users\bztyl\OneDrive\Desktop\java-to-abap\j2abap-backend\src\main\java\de\example\j2abap\api\TranslateController.java
+C:\Users\bztyl\OneDrive\Desktop\java-to-abap\j2abap-backend\src\main\java\de\example\j2abap\ExpressionTranslator.java
+C:\Users\bztyl\OneDrive\Desktop\java-to-abap\j2abap-backend\src\main\java\de\example\j2abap\JavaToAbapTranslator.java
+C:\Users\bztyl\OneDrive\Desktop\java-to-abap\j2abap-backend\src\main\java\de\example\j2abap\MethodSignatureBuilder.java
+C:\Users\bztyl\OneDrive\Desktop\java-to-abap\j2abap-backend\src\main\java\de\example\j2abap\StatementTranslator.java
+C:\Users\bztyl\OneDrive\Desktop\java-to-abap\j2abap-backend\src\main\java\de\example\j2abap\TypeMapper.java
+C:\Users\bztyl\OneDrive\Desktop\java-to-abap\j2abap-backend\src\main\java\de\example\j2abap\util\Strings.java

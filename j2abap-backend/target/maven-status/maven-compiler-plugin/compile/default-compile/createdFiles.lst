@@ -1,0 +1,16 @@
+de\example\j2abap\MethodSignatureBuilder.class
+de\example\j2abap\api\CorsConfig.class
+de\example\j2abap\JavaToAbapTranslator$1.class
+de\example\j2abap\JavaToAbapTranslator.class
+de\example\j2abap\api\ApiApplication.class
+de\example\j2abap\ExpressionTranslator.class
+de\example\j2abap\AbapEmitter.class
+de\example\j2abap\StatementTranslator.class
+de\example\j2abap\api\ApiExceptionHandler.class
+de\example\j2abap\api\CorsConfig$1.class
+de\example\j2abap\api\HealthController.class
+de\example\j2abap\ExpressionTranslator$1.class
+de\example\j2abap\TypeMapper$1.class
+de\example\j2abap\TypeMapper.class
+de\example\j2abap\api\TranslateController.class
+de\example\j2abap\util\Strings.class

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
+  <title>Java → ABAP (Skeleton)</title>
+</head>
+<body>
+  <main class="wrap">
+    <header class="top">
+      <div>
+        <h1>Java → ABAP (Skeleton)</h1>
+        <p class="sub">Supports: Snippet (Statements) & Class (File) — Auto erkennt meist korrekt.</p>
+      </div>
+
+      <div class="mode">
+        <span class="label">Modus</span>
+        <div class="segmented" role="tablist" aria-label="Übersetzungsmodus">
+          <input type="radio" name="mode" id="mode-auto" value="auto" checked>
+          <label for="mode-auto">Auto</label>
+
+          <input type="radio" name="mode" id="mode-snippet" value="snippet">
+          <label for="mode-snippet">Snippet</label>
+
+          <input type="radio" name="mode" id="mode-class" value="class">
+          <label for="mode-class">Class</label>
+        </div>
+      </div>
+    </header>
+
+    <label>Java Code</label>
+    <textarea id="in" spellcheck="false"></textarea>
+
+    <div class="row">
+      <button id="go">Übersetzen</button>
+      <button id="copy" disabled>ABAP kopieren</button>
+      <span id="status" class="status"></span>
+    </div>
+
+    <label>ABAP Output</label>
+    <textarea id="out" spellcheck="false" readonly></textarea>
+
+    <p class="hint">
+      Hinweis: Snippet erwartet gültige Java-Statements (meist mit <code>;</code>).
+      Class erwartet eine Java-Datei mit <code>class</code>.
+    </p>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

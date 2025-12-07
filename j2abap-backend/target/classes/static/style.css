@@ -1,0 +1,126 @@
+:root{
+  --bg:#fff;
+  --text:#111;
+  --muted:#666;
+  --border:#ddd;
+  --shadow:0 8px 30px rgba(0,0,0,.06);
+  --radius:16px;
+}
+
+*{ box-sizing:border-box; }
+body{
+  margin:0;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial;
+  color:var(--text);
+  background:var(--bg);
+}
+
+.wrap{
+  max-width: 1100px;
+  margin: 32px auto;
+  padding: 0 18px 48px;
+}
+
+.top{
+  display:flex;
+  gap:18px;
+  align-items:flex-start;
+  justify-content:space-between;
+  margin-bottom:16px;
+}
+
+h1{ margin:0 0 6px; font-size:28px; }
+.sub{ margin:0; color:var(--muted); }
+
+label{
+  display:block;
+  margin:16px 0 8px;
+  color:var(--muted);
+  font-size:14px;
+}
+
+textarea{
+  width:100%;
+  min-height: 240px;
+  padding:14px 14px;
+  border:1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px;
+  line-height: 1.35;
+  outline:none;
+}
+textarea:focus{
+  border-color:#bbb;
+  box-shadow: var(--shadow);
+}
+
+.row{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  margin-top:10px;
+}
+
+button{
+  border:1px solid var(--border);
+  background:#fafafa;
+  padding:10px 14px;
+  border-radius: 12px;
+  cursor:pointer;
+}
+button:hover{ background:#f3f3f3; }
+button:disabled{ opacity:.5; cursor:not-allowed; }
+
+.status{
+  margin-left:6px;
+  color:var(--muted);
+  font-size:14px;
+  max-width: 620px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.status.ok{ color:#0a7a2f; }
+.status.err{ color:#b00020; }
+
+.hint{
+  margin-top:10px;
+  color:var(--muted);
+  font-size:13px;
+}
+
+.mode{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  align-items:flex-end;
+}
+.mode .label{
+  font-size:12px;
+  color:var(--muted);
+}
+
+.segmented{
+  display:inline-grid;
+  grid-auto-flow:column;
+  gap:0;
+  border:1px solid var(--border);
+  border-radius: 12px;
+  overflow:hidden;
+  background:#fff;
+}
+.segmented input{ display:none; }
+.segmented label{
+  margin:0;
+  padding:8px 12px;
+  cursor:pointer;
+  font-size:13px;
+  color:#333;
+  background:#fff;
+  user-select:none;
+}
+.segmented input:checked + label{
+  background:#111;
+  color:#fff;
+}
