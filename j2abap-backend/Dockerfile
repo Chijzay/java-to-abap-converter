@@ -11,7 +11,6 @@ COPY src ./src
 RUN mvn -q -DskipTests package \
  && ls -lah target \
  && cp target/*.jar /app/app.jar
-...
 COPY --from=build /app/app.jar /app/app.jar
 
 # ---- runtime stage ----
