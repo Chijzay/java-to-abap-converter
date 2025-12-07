@@ -1,24 +1,23 @@
-# ---- build stage ----
+# -------- build stage --------
 FROM maven:3.9.9-eclipse-temurin-21 AS build
-WORKDIR /app
+WORKDIR /workspace
 
-# Nur pom zuerst (besseres Caching)
-COPY pom.xml .
+# Nur POM zuerst (Cache)
+COPY j2abap-backend/pom.xml ./pom.xml
 RUN mvn -q -DskipTests dependency:go-offline
 
 # Dann Source
-COPY src ./src
-RUN mvn -q -DskipTests package \
- && ls -lah target \
- && cp target/*.jar /app/app.jar
-COPY --from=build /app/app.jar /app/app.jar
+COPY j2abap-backend/src ./src
+RUN mvn -q -DskipTests package
 
-# ---- runtime stage ----
+# -------- runtime stage --------
 FROM eclipse-temurin:21-jre
 WORKDIR /app
 
-COPY --from=build /app/target/*.jar app.jar
+# Das gebaute Jar aus dem build stage holen
+COPY --from=build /workspace/target/*.jar /app/app.jar
 
-# kein ENV PORT hier!
+ENV PORT=8080
 EXPOSE 8080
+
 ENTRYPOINT ["sh","-c","exec java -Dserver.port=${PORT} -jar /app/app.jar"]
