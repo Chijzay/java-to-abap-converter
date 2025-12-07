@@ -1,4 +1,4 @@
-const API_BASE = "https://scattered-lebbie-steven-illg-it-f8b8abdf.koyeb.app";
+const API_BASE = "https://scattered-lebbie-steven-illg-it-f8b8abdf.koyeb.app/api/health/";
 
 const $in = document.getElementById("in");
 const $out = document.getElementById("out");
