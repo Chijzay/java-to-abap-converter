@@ -1,33 +1,38 @@
-Portfolio-Viewing-Only License (Custom)
+PORTFOLIO VIEWING-ONLY LICENSE (CUSTOM)
+Version 1.0 — 2025
 
 Copyright (c) 2025 Steven Illg
+All rights reserved.
 
-This repository, including all documents, texts, graphics, files, source code and 
-any other included materials, is provided solely for the purpose of 
-personal presentation in the author's professional portfolio.
+This repository and all its contents, including but not limited to source code,
+documentation, text, images, designs, and any other materials (collectively, the “Work”),
+are provided solely for personal presentation as part of the author’s professional portfolio.
 
-Permitted Use:
-- You may view the Work directly on the author's GitHub profile for the purpose 
-  of evaluation of the author's skills and qualifications.
+PERMITTED USE
+Permission is granted only to:
+- View the Work on the author’s official repository page (e.g., on GitHub) for the sole purpose
+  of evaluating the author’s skills and qualifications.
 
-Prohibited Use:
-- You may NOT download, copy, reproduce, distribute, share, publish, or 
-  otherwise transfer the Work, in whole or in part.
-- You may NOT modify, transform, adapt, or create derivative works based on the Work.
-- You may NOT use the Work for any commercial, educational, or private purpose.
-- You may NOT include the Work in any software, dataset, documentation, 
-  training material, book, website, or digital/physical product.
-- You may NOT publish the Work, in whole or in part, on any other platform 
-  (including but not limited to GitHub forks, websites, cloud drives, 
-  social media, academic repositories, or file-sharing services).
+PROHIBITED USE
+Except for the limited permission above, you may NOT, without prior written permission
+from the author:
+- Download, copy, reproduce, distribute, share, publish, transmit, or otherwise make available
+  the Work (in whole or in part) in any form.
+- Modify, transform, translate, adapt, or create derivative works based on the Work.
+- Use the Work for any commercial purpose.
+- Use the Work for any educational, private, internal, or organizational purpose.
+- Include the Work (in whole or in part) in any software, dataset, documentation, training
+  material, course, book, article, website, product, or service.
+- Re-publish the Work on any other platform, including but not limited to forks, mirrors,
+  archives, cloud drives, social media, academic repositories, or file-sharing services.
 
-Ownership:
-- All rights remain exclusively with the author.
-- No license to copy, distribute, or exploit the Work is granted or implied.
+OWNERSHIP
+The Work is and remains the exclusive property of the author. No rights are granted
+except as explicitly stated in this license.
 
-Limitation:
-- The Work is made available solely as part of the author's personal portfolio. 
-  Any use outside of viewing for evaluation purposes is strictly forbidden.
-
-By accessing this repository, you agree to abide by these terms.
-
+NO WARRANTY
+THE WORK IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF, OR IN
+CONNECTION WITH THE WORK OR THE USE OF THE WORK.
