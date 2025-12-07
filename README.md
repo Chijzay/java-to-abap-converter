@@ -1,9 +1,11 @@
 # Java → ABAP Converter
 
-Ein Web-Tool, das **eine Teilmenge von Java-Code** in **ABAP-Skelettcode** übersetzt – entweder als **Snippet** (einzelne Statements) oder als **Class** (vereinfachtes Grundgerüst).  
-Frontend läuft auf **GitHub Pages**, Backend als **Spring Boot REST API** (z. B. auf **Koyeb**).
+Ein Web-Tool, das eine Teilmenge von Java-Code in ein ABAP-Grundgerüst übersetzt - entweder als _Snippet_ (einzelne Statements) oder als _Class_ (vereinfachtes Grundgerüst).  
+Das Frontend läuft auf GitHub Pages und das Backend als Spring Boot REST API auf Koyeb.
 
-> Hinweis: Das Projekt ist ein **Subset-Translator**. Nicht jeder Java-Konstruktion entspricht 1 zu 1 ABAP. Unbekannte oder komplexe Elemente werden als `TODO` markiert.
+**Hinweis:**
+
+Das Projekt ist ein **Subset-Translator**. Nicht jeder Java-Konstruktion entspricht 1 zu 1 ABAP. Unbekannte oder komplexe Elemente werden als `TODO` markiert.
 
 
 ## Features
@@ -92,7 +94,7 @@ https://chijzay.github.io/java-to-abap-converter/
   - Methoden: `GET`, `POST`, `OPTIONS`
   - Headers: `Content-Type`
 
-## Limitations und Bekannte Grenzen
+## Limitations und bekannte Grenzen
 
 - Fokus liegt auf Subset von Java
 - Keine vollständige Java-Semantik, da keine vollständige ABAP-Entsprechung
