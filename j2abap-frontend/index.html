@@ -2,12 +2,16 @@
 <html lang="de">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#0b5fff" />
   <title>Java to ABAP converter</title>
+
+  <!-- Optional: API Base zentral konfigurierbar (JS liest das) -->
+  <meta name="api-base" content="https://scattered-lebbie-steven-illg-it-f8b8abdf.koyeb.app" />
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="style.css" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css">
@@ -17,7 +21,12 @@
   <main class="wrap">
     <header class="header">
       <div class="title">
-        <h1>Java to ABAP converter</h1>
+        <h1 class="brand">
+          <span class="brand-main">Java</span>
+          <span class="brand-sep">→</span>
+          <span class="brand-accent">ABAP</span>
+          <span class="brand-sub">converter</span>
+        </h1>
         <p class="sub">Übersetzt Java-Code in ein ABAP-Skelett (oder einzelne Statements als Snippet).</p>
       </div>
 
@@ -38,6 +47,33 @@
         <button id="download" class="btn" type="button" disabled>Download .abap</button>
       </div>
     </header>
+
+    <!-- Grid kommt auf Mobile vor die Info-Box (CSS order) -->
+    <section class="grid">
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Java</h2>
+        </div>
+
+        <div class="editor" data-lang="java">
+          <div class="gutter" id="inGutter" aria-hidden="true"></div>
+          <textarea id="in" spellcheck="false"></textarea>
+          <pre class="code"><code id="inHL" class="language-java"></code></pre>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>ABAP</h2>
+        </div>
+
+        <div class="editor readonly" data-lang="abap">
+          <div class="gutter" id="outGutter" aria-hidden="true"></div>
+          <textarea id="out" spellcheck="false" readonly></textarea>
+          <pre class="code"><code id="outHL" class="language-abap"></code></pre>
+        </div>
+      </section>
+    </section>
 
     <section class="info">
       <div class="info-left">
@@ -70,37 +106,11 @@
         </div>
       </div>
     </section>
-
-    <section class="grid">
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Java</h2>
-        </div>
-
-        <div class="editor" data-lang="java">
-          <div class="gutter" id="inGutter" aria-hidden="true"></div>
-          <textarea id="in" spellcheck="false"></textarea>
-          <pre class="code"><code id="inHL" class="language-java"></code></pre>
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-head">
-          <h2>ABAP</h2>
-        </div>
-
-        <div class="editor readonly" data-lang="abap">
-          <div class="gutter" id="outGutter" aria-hidden="true"></div>
-          <textarea id="out" spellcheck="false" readonly></textarea>
-          <pre class="code"><code id="outHL" class="language-abap"></code></pre>
-        </div>
-      </section>
-    </section>
   </main>
 
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
 
-  <script src="app.js?v=line-numbers-1"></script>
+  <script src="app.js?v=responsive-ui-2"></script>
 </body>
 </html>
