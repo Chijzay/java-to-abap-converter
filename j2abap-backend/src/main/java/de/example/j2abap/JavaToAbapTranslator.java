@@ -8,14 +8,27 @@ import com.github.javaparser.ast.comments.Comment;
 import com.github.javaparser.ast.comments.JavadocComment;
 import com.github.javaparser.ast.comments.LineComment;
 import com.github.javaparser.ast.expr.*;
+import com.github.javaparser.ast.nodeTypes.NodeWithPrivate;
+import com.github.javaparser.ast.nodeTypes.NodeWithProtected;
+import com.github.javaparser.ast.nodeTypes.NodeWithPublic;
 import com.github.javaparser.ast.stmt.*;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * Best-effort Java -> ABAP translator for basic constructs.
+ * Notes:
+ * - ABAP is not Java: many constructs are mapped as hints/comments.
+ * - Focus is "CV-demo translator": readable ABAP-ish output > perfect semantic equivalence.
+ */
 @Service
 public class JavaToAbapTranslator {
+
+  // ===========================
+  // PUBLIC API
+  // ===========================
 
   public String translateAuto(String javaCode) {
     String src = javaCode == null ? "" : javaCode.trim();
@@ -40,9 +53,10 @@ public class JavaToAbapTranslator {
     };
   }
 
-  // ---------------------------
+  // ===========================
   // SNIPPET
-  // ---------------------------
+  // ===========================
+
   private String translateSnippetInternal(String src) {
     StringBuilder out = new StringBuilder();
 
@@ -59,9 +73,10 @@ public class JavaToAbapTranslator {
     return ensureTrailingNewline(out);
   }
 
-  // ---------------------------
+  // ===========================
   // CLASS / INTERFACE / RECORD / ENUM
-  // ---------------------------
+  // ===========================
+
   private String translateClassInternal(String src) {
     StringBuilder out = new StringBuilder();
 
@@ -70,7 +85,6 @@ public class JavaToAbapTranslator {
 
       emitCompilationUnitHeaderComments(cu, out);
 
-      // Top-level enum?
       Optional<EnumDeclaration> enumOpt = cu.findFirst(EnumDeclaration.class);
       Optional<ClassOrInterfaceDeclaration> clsOpt = cu.findFirst(ClassOrInterfaceDeclaration.class);
       Optional<RecordDeclaration> recOpt = cu.findFirst(RecordDeclaration.class);
@@ -83,7 +97,9 @@ public class JavaToAbapTranslator {
         return "Parse error (Java). Tipp: Class erwartet eine Java-Datei mit class/interface/record/enum.\n";
       }
 
+      // ---------------------------
       // INTERFACE
+      // ---------------------------
       if (clsOpt.isPresent() && clsOpt.get().isInterface()) {
         ClassOrInterfaceDeclaration itf = clsOpt.get();
         String javaName = itf.getNameAsString();
@@ -92,6 +108,20 @@ public class JavaToAbapTranslator {
         emitLeadingComments(itf, out, 0);
 
         out.append("INTERFACE ").append(abapName).append(" PUBLIC.\n");
+
+        // Fields in interfaces are implicitly public static final in Java
+        for (FieldDeclaration fd : itf.getFields()) {
+          emitLeadingComments(fd, out, 2);
+          emit(out, 2, "\" Java interface field => constants (best-effort)");
+          for (VariableDeclarator v : fd.getVariables()) {
+            if (v.getInitializer().isPresent() && isSimpleLiteral(v.getInitializer().get())) {
+              emit(out, 2, "CONSTANTS " + v.getNameAsString() + " TYPE " + mapType(v.getTypeAsString())
+                  + " VALUE " + expr(v.getInitializer().get()) + ".");
+            } else {
+              emit(out, 2, "\" TODO: interface field without simple literal -> manual mapping");
+            }
+          }
+        }
 
         // method signatures
         for (MethodDeclaration md : itf.getMethods()) {
@@ -104,26 +134,33 @@ public class JavaToAbapTranslator {
 
           if (!md.getParameters().isEmpty()) {
             out.append(" IMPORTING");
-            md.getParameters().forEach(p ->
-                out.append(" ").append(p.getNameAsString())
-                    .append(" TYPE ").append(mapType(p.getTypeAsString()))
-            );
+            md.getParameters().forEach(p -> {
+              AbapTypeInfo ti = mapTypeInfo(p.getTypeAsString(), p.getNameAsString(), true);
+              if (!ti.preLines.isEmpty()) {
+                emit(out, 2, "\" TODO: complex param type in signature; manual TYPES needed for: " + p.getTypeAsString());
+              }
+              out.append(" ").append(p.getNameAsString())
+                  .append(" TYPE ").append(ti.abapType);
+            });
           }
 
           if (!md.getType().isVoidType()) {
-            out.append(" RETURNING VALUE(rv_result) TYPE ").append(mapType(md.getTypeAsString()));
+            AbapTypeInfo rti = mapTypeInfo(md.getTypeAsString(), "rv_result", true);
+            out.append(" RETURNING VALUE(rv_result) TYPE ").append(rti.abapType);
           }
 
           out.append(".\n");
         }
 
-        emit(out, 2, "\" TODO: Interface constants / default methods are not mapped 1:1");
+        emit(out, 2, "\" TODO: default methods / private methods in interfaces are not mapped 1:1");
         out.append("ENDINTERFACE.\n");
 
         return ensureTrailingNewline(out);
       }
 
+      // ---------------------------
       // RECORD -> treat like class with readonly components + constructor hint
+      // ---------------------------
       if (recOpt.isPresent()) {
         RecordDeclaration rec = recOpt.get();
         String javaName = rec.getNameAsString();
@@ -136,15 +173,18 @@ public class JavaToAbapTranslator {
 
         emit(out, 4, "\" record mapped best-effort: components -> READ-ONLY attributes");
         for (Parameter p : rec.getParameters()) {
-          emit(out, 4, "DATA " + p.getNameAsString() + " TYPE " + mapType(p.getTypeAsString()) + " READ-ONLY.");
+          AbapTypeInfo ti = mapTypeInfo(p.getTypeAsString(), p.getNameAsString(), false);
+          for (String pre : ti.preLines) emit(out, 4, pre);
+          for (String c : ti.comments) emit(out, 4, c);
+          emit(out, 4, "DATA " + p.getNameAsString() + " TYPE " + ti.abapType + " READ-ONLY.");
         }
 
-        // constructor (ABAP has one CONSTRUCTOR, Java records have canonical ctor)
         out.append("    METHODS constructor");
         if (!rec.getParameters().isEmpty()) {
           out.append(" IMPORTING");
           for (Parameter p : rec.getParameters()) {
-            out.append(" ").append(p.getNameAsString()).append(" TYPE ").append(mapType(p.getTypeAsString()));
+            AbapTypeInfo pti = mapTypeInfo(p.getTypeAsString(), p.getNameAsString(), true);
+            out.append(" ").append(p.getNameAsString()).append(" TYPE ").append(pti.abapType);
           }
         }
         out.append(".\n");
@@ -163,7 +203,9 @@ public class JavaToAbapTranslator {
         return ensureTrailingNewline(out);
       }
 
+      // ---------------------------
       // CLASS
+      // ---------------------------
       ClassOrInterfaceDeclaration cls = clsOpt.get();
       String javaName = cls.getNameAsString();
       String abapName = "zcl_" + toSnakeLower(javaName);
@@ -187,7 +229,6 @@ public class JavaToAbapTranslator {
       // Constructors
       List<ConstructorDeclaration> ctors = cls.getConstructors();
       if (ctors.size() > 1) {
-        // ABAP: no overload; we keep first, hint others
         emit(out, 0, "\" TODO: Multiple Java constructors detected; ABAP has only one CONSTRUCTOR (no overload).");
       }
 
@@ -210,6 +251,18 @@ public class JavaToAbapTranslator {
         emit(out, 0, "\" TODO: Java initializer blocks (static/instance) detected; manual mapping needed.");
       }
 
+      // Enums inside class -> hint
+      List<EnumDeclaration> nestedEnums = cls.findAll(EnumDeclaration.class).stream()
+          .filter(ed -> ed.getParentNode().isPresent() && ed.getParentNode().get() instanceof ClassOrInterfaceDeclaration)
+          .toList();
+      if (!nestedEnums.isEmpty()) {
+        emit(out, 0, "\" NOTE: Nested enums detected; ABAP has no direct nested-enum syntax. Consider constants/DOMAIN.");
+        for (EnumDeclaration ed : nestedEnums) {
+          emit(out, 0, "\"   Enum: " + ed.getNameAsString() + " = "
+              + ed.getEntries().stream().map(EnumConstantDeclaration::getNameAsString).collect(Collectors.joining(", ")));
+        }
+      }
+
       // Emit sections in ABAP order
       emitSection(out, Section.PUBLIC, fieldsBySec, methodsBySec);
       emitSection(out, Section.PROTECTED, fieldsBySec, methodsBySec);
@@ -217,7 +270,9 @@ public class JavaToAbapTranslator {
 
       out.append("ENDCLASS.\n\n");
 
+      // ---------------------------
       // Implementation
+      // ---------------------------
       out.append("CLASS ").append(abapName).append(" IMPLEMENTATION.\n");
 
       // Constructors (only first)
@@ -266,7 +321,7 @@ public class JavaToAbapTranslator {
     if (d instanceof NodeWithPublic<?> pub && pub.isPublic()) return Section.PUBLIC;
     if (d instanceof NodeWithProtected<?> pro && pro.isProtected()) return Section.PROTECTED;
     if (d instanceof NodeWithPrivate<?> pri && pri.isPrivate()) return Section.PRIVATE;
-    // package-private -> no ABAP equivalent
+    // package-private -> no ABAP equivalent; choose PROTECTED (more restrictive than public)
     return Section.PROTECTED;
   }
 
@@ -290,38 +345,17 @@ public class JavaToAbapTranslator {
       any = true;
       emitLeadingComments(fd, out, 4);
 
-      String hint = fieldModifiersHint(fd);
       boolean packagePrivate = !(fd.isPublic() || fd.isProtected() || fd.isPrivate());
-      if (packagePrivate) emit(out, 4, "\" Java visibility: package-private (no direct ABAP equivalent; mapped to " + sec + ")");
+      if (packagePrivate) {
+        emit(out, 4, "\" Java visibility: package-private (no direct ABAP equivalent; mapped to " + sec + ")");
+      }
 
+      String hint = fieldModifiersHint(fd);
       if (!hint.isEmpty()) emit(out, 4, "\" " + hint);
 
       for (VariableDeclarator v : fd.getVariables()) {
-        String name = v.getNameAsString();
-        String type = mapType(v.getTypeAsString());
-
-        boolean isConstCandidate = fd.isStatic() && fd.isFinal() && v.getInitializer().isPresent() && isSimpleLiteral(v.getInitializer().get());
-        if (isConstCandidate) {
-          emit(out, 4, "CONSTANTS " + name + " TYPE " + type + " VALUE " + expr(v.getInitializer().get()) + ".");
-          continue;
-        }
-
-        String kw = fd.isStatic() ? "CLASS-DATA" : "DATA";
-        String line = kw + " " + name + " TYPE " + type + ".";
-        emit(out, 4, line);
-
-        if (fd.isFinal() && !fd.isStatic()) {
-          emit(out, 4, "\" TODO: final instance field (ABAP has no strict equivalent; consider READ-ONLY + no setter)");
-        }
-
-        v.getInitializer().ifPresent(init -> emit(out, 4, name + " = " + expr(init) + "."));
+        emitDataDecl(out, 4, v.getNameAsString(), v.getTypeAsString(), v.getInitializer(), fd.isStatic(), fd.isFinal());
       }
-    }
-
-    // Enums inside class -> hint (kept)
-    if (sec == Section.PUBLIC) {
-      // only once to avoid noise
-      // (rare in Java, but users asked for it)
     }
 
     // Methods / Constructor
@@ -332,7 +366,9 @@ public class JavaToAbapTranslator {
         emitLeadingComments(md, out, 4);
 
         boolean packagePrivate = !(md.isPublic() || md.isProtected() || md.isPrivate());
-        if (packagePrivate) emit(out, 4, "\" Java visibility: package-private (no direct ABAP equivalent; mapped to " + sec + ")");
+        if (packagePrivate) {
+          emit(out, 4, "\" Java visibility: package-private (no direct ABAP equivalent; mapped to " + sec + ")");
+        }
 
         String hint = methodModifiersHint(md);
         if (!hint.isEmpty()) emit(out, 4, "\" " + hint);
@@ -342,14 +378,19 @@ public class JavaToAbapTranslator {
 
         if (!md.getParameters().isEmpty()) {
           out.append(" IMPORTING");
-          md.getParameters().forEach(p ->
-              out.append(" ").append(p.getNameAsString())
-                  .append(" TYPE ").append(mapType(p.getTypeAsString()))
-          );
+          md.getParameters().forEach(p -> {
+            AbapTypeInfo ti = mapTypeInfo(p.getTypeAsString(), p.getNameAsString(), true);
+            if (!ti.preLines.isEmpty()) {
+              emit(out, 4, "\" TODO: param type needs local TYPES; signature uses TYPE " + ti.abapType + " for: " + p.getTypeAsString());
+            }
+            out.append(" ").append(p.getNameAsString())
+                .append(" TYPE ").append(ti.abapType);
+          });
         }
 
         if (!md.getType().isVoidType()) {
-          out.append(" RETURNING VALUE(rv_result) TYPE ").append(mapType(md.getTypeAsString()));
+          AbapTypeInfo rti = mapTypeInfo(md.getTypeAsString(), "rv_result", true);
+          out.append(" RETURNING VALUE(rv_result) TYPE ").append(rti.abapType);
         }
 
         out.append(".\n");
@@ -359,10 +400,11 @@ public class JavaToAbapTranslator {
         out.append("    METHODS constructor");
         if (!ctor.getParameters().isEmpty()) {
           out.append(" IMPORTING");
-          ctor.getParameters().forEach(p ->
-              out.append(" ").append(p.getNameAsString())
-                  .append(" TYPE ").append(mapType(p.getTypeAsString()))
-          );
+          ctor.getParameters().forEach(p -> {
+            AbapTypeInfo ti = mapTypeInfo(p.getTypeAsString(), p.getNameAsString(), true);
+            out.append(" ").append(p.getNameAsString())
+                .append(" TYPE ").append(ti.abapType);
+          });
         }
         out.append(".\n");
       }
@@ -373,15 +415,10 @@ public class JavaToAbapTranslator {
     }
   }
 
-  private boolean isSimpleLiteral(Expression e) {
-    if (e == null) return false;
-    return e.isIntegerLiteralExpr() || e.isBooleanLiteralExpr() || e.isStringLiteralExpr()
-        || e.isCharLiteralExpr() || e.isDoubleLiteralExpr() || e.isLongLiteralExpr();
-  }
-
-  // ---------------------------
+  // ===========================
   // STATEMENTS
-  // ---------------------------
+  // ===========================
+
   private void translateStatement(Statement st, StringBuilder out, int indent) {
     if (st == null) return;
 
@@ -508,6 +545,251 @@ public class JavaToAbapTranslator {
     emit(out, indent, "\" TODO statement: " + prettyNodeName(st.getClass().getSimpleName()));
   }
 
+  // ===========================
+  // EXPRESSION STATEMENTS
+  // ===========================
+
+  private void translateExpressionStmt(ExpressionStmt es, StringBuilder out, int indent) {
+    Expression e = es.getExpression();
+    emitLeadingComments(e, out, indent);
+
+    // ---------------------------
+    // Variable declarations
+    // ---------------------------
+    if (e.isVariableDeclarationExpr()) {
+      VariableDeclarationExpr vde = e.asVariableDeclarationExpr();
+      vde.getVariables().forEach(v -> {
+        // DATA decl (with List/Map handling)
+        emitDataDecl(out, indent, v.getNameAsString(), v.getTypeAsString(), Optional.empty(), false, false);
+
+        // initializer special cases (get/new/null)
+        if (v.getInitializer().isPresent()) {
+          Expression init = v.getInitializer().get();
+
+          // null -> CLEAR
+          if (init.isNullLiteralExpr()) {
+            emit(out, indent, "CLEAR " + v.getNameAsString() + ".");
+            return;
+          }
+
+          // list.get(i) / map.get(k) used in initializer -> READ TABLE pattern
+          if (init.isMethodCallExpr()) {
+            MethodCallExpr mc = init.asMethodCallExpr();
+            if (tryTranslateListGetIntoTarget(mc, v.getNameAsString(), out, indent).translated) return;
+            if (tryTranslateMapGetIntoTarget(mc, v.getNameAsString(), out, indent).translated) return;
+          }
+
+          // new X(...) -> best-effort CREATE OBJECT if target looks like ref
+          if (init.isObjectCreationExpr()) {
+            ObjectCreationExpr oce = init.asObjectCreationExpr();
+            if (looksLikeRefVar(v.getNameAsString())) {
+              emit(out, indent, "\" new " + oce.getTypeAsString() + "(...) -> CREATE OBJECT (best-effort)");
+              emit(out, indent, "CREATE OBJECT " + v.getNameAsString() + ".");
+              if (!oce.getArguments().isEmpty()) {
+                emit(out, indent, "\" TODO: constructor args need named parameters: "
+                    + oce.getArguments().stream().map(this::expr).collect(Collectors.joining(", ")));
+              }
+            } else {
+              emit(out, indent, "\" TODO: new " + oce.getTypeAsString() + "(...) -> ABAP needs ref var + CREATE OBJECT");
+            }
+            return;
+          }
+
+          // default
+          emit(out, indent, v.getNameAsString() + " = " + expr(init) + ".");
+        }
+      });
+      return;
+    }
+
+    // ---------------------------
+    // Assignments
+    // ---------------------------
+    if (e.isAssignExpr()) {
+      AssignExpr ae = e.asAssignExpr();
+      String target = expr(ae.getTarget());
+
+      // x = null -> CLEAR x.
+      if (ae.getValue().isNullLiteralExpr() && ae.getOperator() == AssignExpr.Operator.ASSIGN) {
+        emit(out, indent, "CLEAR " + target + ".");
+        return;
+      }
+
+      // x = list.get(i) / map.get(k) -> READ TABLE ... INTO x.
+      if (ae.getOperator() == AssignExpr.Operator.ASSIGN && ae.getValue().isMethodCallExpr()) {
+        MethodCallExpr mc = ae.getValue().asMethodCallExpr();
+        if (tryTranslateListGetIntoTarget(mc, target, out, indent).translated) return;
+        if (tryTranslateMapGetIntoTarget(mc, target, out, indent).translated) return;
+      }
+
+      // x = new X(...) -> CREATE OBJECT x (best-effort)
+      if (ae.getOperator() == AssignExpr.Operator.ASSIGN && ae.getValue().isObjectCreationExpr()) {
+        ObjectCreationExpr oce = ae.getValue().asObjectCreationExpr();
+        if (looksLikeRefVar(target)) {
+          emit(out, indent, "\" new " + oce.getTypeAsString() + "(...) -> CREATE OBJECT (best-effort)");
+          emit(out, indent, "CREATE OBJECT " + target + ".");
+          if (!oce.getArguments().isEmpty()) {
+            emit(out, indent, "\" TODO: constructor args need named parameters: "
+                + oce.getArguments().stream().map(this::expr).collect(Collectors.joining(", ")));
+          }
+        } else {
+          emit(out, indent, "\" TODO: object creation assigned to non-ref var; manual mapping needed");
+        }
+        return;
+      }
+
+      String value = expr(ae.getValue());
+
+      switch (ae.getOperator()) {
+        case ASSIGN -> emit(out, indent, target + " = " + value + ".");
+        case PLUS -> emit(out, indent, target + " = " + target + " + " + value + ".");
+        case MINUS -> emit(out, indent, target + " = " + target + " - " + value + ".");
+        case MULTIPLY -> emit(out, indent, target + " = " + target + " * " + value + ".");
+        case DIVIDE -> emit(out, indent, target + " = " + target + " / " + value + ".");
+        default -> {
+          emit(out, indent, "\" TODO: compound assignment '" + ae.getOperator() + "' not mapped");
+          emit(out, indent, target + " = " + value + ".");
+        }
+      }
+      return;
+    }
+
+    // ---------------------------
+    // Unary ++ / --
+    // ---------------------------
+    if (e.isUnaryExpr()) {
+      UnaryExpr u = e.asUnaryExpr();
+      if (u.getOperator() == UnaryExpr.Operator.POSTFIX_INCREMENT ||
+          u.getOperator() == UnaryExpr.Operator.PREFIX_INCREMENT) {
+        emit(out, indent, expr(u.getExpression()) + " = " + expr(u.getExpression()) + " + 1.");
+        return;
+      }
+      if (u.getOperator() == UnaryExpr.Operator.POSTFIX_DECREMENT ||
+          u.getOperator() == UnaryExpr.Operator.PREFIX_DECREMENT) {
+        emit(out, indent, expr(u.getExpression()) + " = " + expr(u.getExpression()) + " - 1.");
+        return;
+      }
+    }
+
+    // ---------------------------
+    // Method calls as statements
+    // ---------------------------
+    if (e.isMethodCallExpr()) {
+      MethodCallExpr mc = e.asMethodCallExpr();
+
+      if (isSystemOutPrintln(mc)) {
+        String arg = !mc.getArguments().isEmpty() ? expr(mc.getArgument(0)) : "''";
+        emit(out, indent, "WRITE: / " + arg + ".");
+        return;
+      }
+      if (isSystemOutPrint(mc)) {
+        String arg = !mc.getArguments().isEmpty() ? expr(mc.getArgument(0)) : "''";
+        emit(out, indent, "WRITE " + arg + ".");
+        return;
+      }
+
+      // List basics: list.add(x) -> APPEND x TO list.
+      if (mc.getScope().isPresent() && mc.getNameAsString().equals("add") && mc.getArguments().size() == 1) {
+        String list = expr(mc.getScope().get());
+        String val = expr(mc.getArgument(0));
+        emit(out, indent, "APPEND " + val + " TO " + list + ".");
+        return;
+      }
+
+      // List basics: list.clear() -> CLEAR list.
+      if (mc.getScope().isPresent() && mc.getNameAsString().equals("clear") && mc.getArguments().isEmpty()) {
+        String list = expr(mc.getScope().get());
+        emit(out, indent, "CLEAR " + list + ".");
+        return;
+      }
+
+      // Map basics: map.put(k,v) -> INSERT VALUE ... INTO TABLE map. (needs ty_*_entry)
+      if (mc.getScope().isPresent() && mc.getNameAsString().equals("put") && mc.getArguments().size() == 2) {
+        String map = expr(mc.getScope().get());
+        String k = expr(mc.getArgument(0));
+        String v = expr(mc.getArgument(1));
+        emit(out, indent, "\" Java Map.put(k,v) mapped best-effort (requires entry type ty_<map>_entry with fields key/value)");
+        emit(out, indent, "INSERT VALUE #( key = " + k + " value = " + v + " ) INTO TABLE " + map + ".");
+        return;
+      }
+
+      // Generic call (this/super/obj/ClassName)
+      String call = abapMethodCallStatement(mc);
+      emit(out, indent, call);
+      return;
+    }
+
+    // new X(...) as standalone statement (rare)
+    if (e.isObjectCreationExpr()) {
+      ObjectCreationExpr oce = e.asObjectCreationExpr();
+      emit(out, indent, "\" TODO: object creation used as statement; usually assign to var");
+      emit(out, indent, "\" new " + oce.getTypeAsString() + "(...) -> consider DATA ref + CREATE OBJECT");
+      return;
+    }
+
+    emit(out, indent, "\" TODO expression: " + prettyNodeName(e.getClass().getSimpleName()));
+  }
+
+  // ===========================
+  // LIST.GET / MAP.GET (statement-level translation)
+  // ===========================
+
+  private record TranslationAttempt(boolean translated) {}
+
+  private TranslationAttempt tryTranslateListGetIntoTarget(MethodCallExpr mc, String target, StringBuilder out, int indent) {
+    if (mc == null) return new TranslationAttempt(false);
+    if (!mc.getNameAsString().equals("get")) return new TranslationAttempt(false);
+    if (mc.getScope().isEmpty()) return new TranslationAttempt(false);
+    if (mc.getArguments().size() != 1) return new TranslationAttempt(false);
+
+    String list = expr(mc.getScope().get());
+    Expression idxExpr = mc.getArgument(0);
+
+    emit(out, indent, "\" Java list.get(i) -> READ TABLE ... INDEX ... (0-based -> 1-based)");
+    if (idxExpr.isIntegerLiteralExpr()) {
+      int i0 = Integer.parseInt(idxExpr.asIntegerLiteralExpr().getValue());
+      int i1 = i0 + 1;
+      emit(out, indent, "READ TABLE " + list + " INDEX " + i1 + " INTO " + target + ".");
+      emit(out, indent, "IF sy-subrc <> 0.");
+      emit(out, indent + 2, "CLEAR " + target + ".");
+      emit(out, indent, "ENDIF.");
+      return new TranslationAttempt(true);
+    }
+
+    // dynamic index: create temp
+    String idx = expr(idxExpr);
+    emit(out, indent, "DATA(lv_idx) = " + idx + " + 1.");
+    emit(out, indent, "READ TABLE " + list + " INDEX lv_idx INTO " + target + ".");
+    emit(out, indent, "IF sy-subrc <> 0.");
+    emit(out, indent + 2, "CLEAR " + target + ".");
+    emit(out, indent, "ENDIF.");
+    return new TranslationAttempt(true);
+  }
+
+  private TranslationAttempt tryTranslateMapGetIntoTarget(MethodCallExpr mc, String target, StringBuilder out, int indent) {
+    if (mc == null) return new TranslationAttempt(false);
+    if (!mc.getNameAsString().equals("get")) return new TranslationAttempt(false);
+    if (mc.getScope().isEmpty()) return new TranslationAttempt(false);
+    if (mc.getArguments().size() != 1) return new TranslationAttempt(false);
+
+    String map = expr(mc.getScope().get());
+    String key = expr(mc.getArgument(0));
+
+    emit(out, indent, "\" Java map.get(k) -> READ TABLE ... WITH TABLE KEY key = k (best-effort)");
+    emit(out, indent, "\" NOTE: requires map to be a hashed table of entries with fields key/value");
+    emit(out, indent, "READ TABLE " + map + " WITH TABLE KEY key = " + key + " INTO DATA(ls_entry).");
+    emit(out, indent, "IF sy-subrc = 0.");
+    emit(out, indent + 2, target + " = ls_entry-value.");
+    emit(out, indent, "ELSE.");
+    emit(out, indent + 2, "CLEAR " + target + ".");
+    emit(out, indent, "ENDIF.");
+    return new TranslationAttempt(true);
+  }
+
+  // ===========================
+  // TRY/CATCH
+  // ===========================
+
   private void translateTryStmt(TryStmt ts, StringBuilder out, int indent) {
     emit(out, indent, "TRY.");
     for (Statement st : ts.getTryBlock().getStatements()) {
@@ -534,150 +816,10 @@ public class JavaToAbapTranslator {
     emit(out, indent, "ENDTRY.");
   }
 
-  // ---------------------------
-  // EXPRESSION STATEMENTS
-  // ---------------------------
-  private void translateExpressionStmt(ExpressionStmt es, StringBuilder out, int indent) {
-    Expression e = es.getExpression();
-    emitLeadingComments(e, out, indent);
-
-    if (e.isVariableDeclarationExpr()) {
-      VariableDeclarationExpr vde = e.asVariableDeclarationExpr();
-      vde.getVariables().forEach(v -> {
-        String name = v.getNameAsString();
-        String type = mapType(v.getTypeAsString());
-        emit(out, indent, "DATA " + name + " TYPE " + type + ".");
-        v.getInitializer().ifPresent(init -> emit(out, indent, name + " = " + expr(init) + "."));
-      });
-      return;
-    }
-
-    if (e.isAssignExpr()) {
-      AssignExpr ae = e.asAssignExpr();
-      String target = expr(ae.getTarget());
-      String value = expr(ae.getValue());
-
-      switch (ae.getOperator()) {
-        case ASSIGN -> emit(out, indent, target + " = " + value + ".");
-        case PLUS -> emit(out, indent, target + " = " + target + " + " + value + ".");
-        case MINUS -> emit(out, indent, target + " = " + target + " - " + value + ".");
-        case MULTIPLY -> emit(out, indent, target + " = " + target + " * " + value + ".");
-        case DIVIDE -> emit(out, indent, target + " = " + target + " / " + value + ".");
-        default -> {
-          emit(out, indent, "\" TODO: compound assignment '" + ae.getOperator() + "' not mapped");
-          emit(out, indent, target + " = " + value + ".");
-        }
-      }
-      return;
-    }
-
-    if (e.isUnaryExpr()) {
-      UnaryExpr u = e.asUnaryExpr();
-      if (u.getOperator() == UnaryExpr.Operator.POSTFIX_INCREMENT ||
-          u.getOperator() == UnaryExpr.Operator.PREFIX_INCREMENT) {
-        emit(out, indent, expr(u.getExpression()) + " = " + expr(u.getExpression()) + " + 1.");
-        return;
-      }
-      if (u.getOperator() == UnaryExpr.Operator.POSTFIX_DECREMENT ||
-          u.getOperator() == UnaryExpr.Operator.PREFIX_DECREMENT) {
-        emit(out, indent, expr(u.getExpression()) + " = " + expr(u.getExpression()) + " - 1.");
-        return;
-      }
-    }
-
-    if (e.isMethodCallExpr()) {
-      MethodCallExpr mc = e.asMethodCallExpr();
-
-      if (isSystemOutPrintln(mc)) {
-        String arg = !mc.getArguments().isEmpty() ? expr(mc.getArgument(0)) : "''";
-        emit(out, indent, "WRITE: / " + arg + ".");
-        return;
-      }
-      if (isSystemOutPrint(mc)) {
-        String arg = !mc.getArguments().isEmpty() ? expr(mc.getArgument(0)) : "''";
-        emit(out, indent, "WRITE " + arg + ".");
-        return;
-      }
-
-      // generic call: this/super/obj/ClassName
-      String call = abapMethodCallStatement(mc);
-      emit(out, indent, call);
-      return;
-    }
-
-    if (e.isObjectCreationExpr()) {
-      ObjectCreationExpr oce = e.asObjectCreationExpr();
-      emit(out, indent, "\" TODO: object creation used as statement; usually assign to var");
-      emit(out, indent, "\" new " + oce.getTypeAsString() + "(...) -> consider DATA ref + CREATE OBJECT");
-      return;
-    }
-
-    emit(out, indent, "\" TODO expression: " + prettyNodeName(e.getClass().getSimpleName()));
-  }
-
-  private boolean isSystemOutPrint(MethodCallExpr mc) {
-    if (!mc.getNameAsString().equals("print")) return false;
-    if (mc.getScope().isEmpty()) return false;
-
-    Expression scope = mc.getScope().get();
-    if (scope.isFieldAccessExpr()) {
-      FieldAccessExpr fa = scope.asFieldAccessExpr();
-      return fa.getNameAsString().equals("out")
-          && fa.getScope().isNameExpr()
-          && fa.getScope().asNameExpr().getNameAsString().equals("System");
-    }
-    return false;
-  }
-
-  private String abapMethodCallStatement(MethodCallExpr mc) {
-    String target;
-    if (mc.getScope().isPresent()) {
-      target = abapCallTarget(mc.getScope().get()) + mc.getNameAsString();
-    } else {
-      // unqualified call inside instance method -> me->
-      target = "me->" + mc.getNameAsString();
-    }
-
-    if (mc.getArguments().isEmpty()) {
-      return target + "( ).";
-    }
-
-    String args = mc.getArguments().stream().map(this::expr).collect(Collectors.joining(", "));
-    return "\" TODO: map Java args to ABAP named parameters manually: (" + args + ")\n"
-        + target + "( ).";
-  }
-
-  private String abapCallTarget(Expression scope) {
-    // returns something like "me->" / "super->" / "lo_obj->" / "zcl_x=>"
-    if (scope == null) return "me->";
-
-    if (scope.isThisExpr()) return "me->";
-    if (scope.isSuperExpr()) return "super->";
-
-    if (scope.isNameExpr()) {
-      String n = scope.asNameExpr().getNameAsString();
-      if (looksLikeTypeName(n)) {
-        return "zcl_" + toSnakeLower(n) + "=>";
-      }
-      return n + "->";
-    }
-
-    if (scope.isFieldAccessExpr()) {
-      // chain like this.foo.bar -> me->foo->bar
-      String base = access(scope);
-      // access() already returns full, so to call method we need add "->"
-      // but if base ends with "=>" keep static
-      if (base.endsWith("=>")) return base;
-      return base + "->";
-    }
-
-    // fallback
-    return expr(scope) + "->";
-  }
-
-  // ---------------------------
+  // ===========================
   // SWITCH
-  // ---------------------------
+  // ===========================
+
   private void translateSwitchStmt(SwitchStmt ss, StringBuilder out, int indent) {
     String selector = expr(ss.getSelector());
     emit(out, indent, "CASE " + selector + ".");
@@ -716,7 +858,7 @@ public class JavaToAbapTranslator {
       }
 
       for (Statement st : stmts) {
-        if (st.isBreakStmt()) continue; // CASE in ABAP needs no break
+        if (st.isBreakStmt()) continue;
         translateStatement(st, out, indent + 4);
       }
 
@@ -737,9 +879,10 @@ public class JavaToAbapTranslator {
     return "'" + prettyNodeName(e.getClass().getSimpleName()).replace(" ", "_").toUpperCase(Locale.ROOT) + "'";
   }
 
-  // ---------------------------
+  // ===========================
   // FOR / FOREACH
-  // ---------------------------
+  // ===========================
+
   private void translateForStmt(ForStmt fs, StringBuilder out, int indent) {
     Optional<ForLoopPattern> pat = detectSimpleCountingLoop(fs);
     if (pat.isPresent()) {
@@ -757,11 +900,25 @@ public class JavaToAbapTranslator {
   }
 
   private void translateForEachStmt(ForEachStmt fes, StringBuilder out, int indent) {
+    // for (T x : list) { ... } => LOOP AT list INTO x. ... ENDLOOP.
+    // If element type is "var" => LOOP AT ... INTO DATA(x).
     String var = fes.getVariable().getVariable(0).getNameAsString();
+    String javaElemType = fes.getVariable().getElementType().asString();
     String iterable = expr(fes.getIterable());
 
     emit(out, indent, "\" foreach mapped to LOOP AT (best-effort)");
-    emit(out, indent, "LOOP AT " + iterable + " INTO " + var + ".");
+
+    boolean isVar = "var".equals(javaElemType);
+    if (isVar) {
+      emit(out, indent, "LOOP AT " + iterable + " INTO DATA(" + var + ").");
+    } else {
+      AbapTypeInfo ti = mapTypeInfo(javaElemType, var, false);
+      for (String pre : ti.preLines) emit(out, indent, pre);
+      for (String c : ti.comments) emit(out, indent, c);
+      emit(out, indent, "\" NOTE: ensure '" + var + "' is declared with compatible type");
+      emit(out, indent, "LOOP AT " + iterable + " INTO " + var + ".");
+    }
+
     translateStatement(fes.getBody(), out, indent + 2);
     emit(out, indent, "ENDLOOP.");
   }
@@ -845,9 +1002,10 @@ public class JavaToAbapTranslator {
     return Optional.empty();
   }
 
-  // ---------------------------
+  // ===========================
   // ENUM (basic hint)
-  // ---------------------------
+  // ===========================
+
   private void translateEnumDeclaration(EnumDeclaration ed, StringBuilder out, int indent) {
     emitLeadingComments(ed, out, indent);
     String name = ed.getNameAsString();
@@ -859,9 +1017,179 @@ public class JavaToAbapTranslator {
     emit(out, indent, "\" Options: (1) DOMAIN + fixed values, (2) CONSTANTS in class/interface, (3) CHAR/STRING + validation.");
   }
 
-  // ---------------------------
+  // ===========================
+  // COLLECTION / NULL HELPERS
+  // ===========================
+
+  private record AbapTypeInfo(String abapType, List<String> preLines, List<String> comments) {}
+
+  private record Generic(String base, List<String> args) {}
+
+  private AbapTypeInfo mapTypeInfo(String javaTypeRaw, String varName, boolean forSignature) {
+    String t = javaTypeRaw == null ? "" : javaTypeRaw.trim();
+
+    // Arrays: T[] -> internal table
+    if (t.endsWith("[]")) {
+      String elemJava = t.substring(0, t.length() - 2).trim();
+      String elemAbap = mapType(elemJava);
+      String abap = forSignature
+          ? ("STANDARD TABLE OF " + elemAbap)
+          : ("STANDARD TABLE OF " + elemAbap + " WITH EMPTY KEY");
+      return new AbapTypeInfo(abap, List.of(), List.of("\" Java array -> ABAP internal table (STANDARD TABLE)"));
+    }
+
+    // Generics: List<T>, Map<K,V> ...
+    Optional<Generic> g = parseGeneric(t);
+    if (g.isPresent()) {
+      Generic gg = g.get();
+
+      if (isListBase(gg.base)) {
+        String elemJava = gg.args.isEmpty() ? "String" : gg.args.get(0);
+        String elemAbap = mapType(elemJava);
+
+        if ("String".equals(elemJava) || "string".equalsIgnoreCase(elemAbap)) {
+          return new AbapTypeInfo("string_table", List.of(),
+              List.of("\" Java List<String> -> ABAP string_table"));
+        }
+
+        String abap = forSignature
+            ? ("STANDARD TABLE OF " + elemAbap)
+            : ("STANDARD TABLE OF " + elemAbap + " WITH EMPTY KEY");
+        return new AbapTypeInfo(abap, List.of(),
+            List.of("\" Java List<" + elemJava + "> -> ABAP internal table (STANDARD TABLE)"));
+      }
+
+      if (isMapBase(gg.base)) {
+        String keyJava = gg.args.size() > 0 ? gg.args.get(0) : "String";
+        String valJava = gg.args.size() > 1 ? gg.args.get(1) : "String";
+        String keyAbap = mapType(keyJava);
+        String valAbap = mapType(valJava);
+
+        String ty = "ty_" + toSnakeLower(varName == null ? "map" : varName) + "_entry";
+
+        List<String> pre = new ArrayList<>();
+        pre.add("TYPES: BEGIN OF " + ty + ",");
+        pre.add("         key   TYPE " + keyAbap + ",");
+        pre.add("         value TYPE " + valAbap + ",");
+        pre.add("       END OF " + ty + ".");
+
+        String abapType = forSignature
+            ? "any"
+            : ("HASHED TABLE OF " + ty + " WITH UNIQUE KEY key");
+
+        List<String> cmts = List.of(
+            "\" Java Map<" + keyJava + "," + valJava + "> -> ABAP hashed table needs entry type",
+            "\" NOTE: In method signatures we fallback to TYPE any (manual refinement recommended)"
+        );
+
+        return new AbapTypeInfo(abapType, pre, cmts);
+      }
+    }
+
+    return new AbapTypeInfo(mapType(t), List.of(), List.of());
+  }
+
+  private Optional<Generic> parseGeneric(String type) {
+    if (type == null) return Optional.empty();
+    String s = type.trim();
+    int lt = s.indexOf('<');
+    int gt = s.lastIndexOf('>');
+    if (lt < 0 || gt < 0 || gt <= lt) return Optional.empty();
+
+    String base = s.substring(0, lt).trim();
+    String inside = s.substring(lt + 1, gt).trim();
+    List<String> args = splitTopLevelArgs(inside);
+    return Optional.of(new Generic(base, args));
+  }
+
+  private List<String> splitTopLevelArgs(String inside) {
+    List<String> out = new ArrayList<>();
+    if (inside == null || inside.isBlank()) return out;
+
+    int depth = 0;
+    StringBuilder cur = new StringBuilder();
+    for (int i = 0; i < inside.length(); i++) {
+      char c = inside.charAt(i);
+      if (c == '<') depth++;
+      if (c == '>') depth--;
+      if (c == ',' && depth == 0) {
+        out.add(cur.toString().trim());
+        cur.setLength(0);
+      } else {
+        cur.append(c);
+      }
+    }
+    if (!cur.toString().isBlank()) out.add(cur.toString().trim());
+    return out;
+  }
+
+  private boolean isListBase(String base) {
+    if (base == null) return false;
+    String b = base.trim();
+    return b.equals("List") || b.equals("ArrayList") || b.equals("LinkedList") || b.equals("Collection");
+  }
+
+  private boolean isMapBase(String base) {
+    if (base == null) return false;
+    String b = base.trim();
+    return b.equals("Map") || b.equals("HashMap") || b.equals("LinkedHashMap") || b.equals("TreeMap");
+  }
+
+  private boolean looksLikeRefVar(String abapOperand) {
+    if (abapOperand == null) return false;
+    String x = abapOperand.trim().toLowerCase(Locale.ROOT);
+    return x.startsWith("lo_") || x.startsWith("lr_") || x.startsWith("ro_") || x.startsWith("rr_")
+        || x.contains("->");
+  }
+
+  private void emitDataDecl(
+      StringBuilder out,
+      int indent,
+      String name,
+      String javaType,
+      Optional<Expression> initializer,
+      boolean isStatic,
+      boolean isFinal
+  ) {
+    AbapTypeInfo ti = mapTypeInfo(javaType, name, false);
+
+    for (String line : ti.preLines) emit(out, indent, line);
+    for (String c : ti.comments) emit(out, indent, c);
+
+    if (isStatic && isFinal && initializer.isPresent() && isSimpleLiteral(initializer.get())) {
+      emit(out, indent, "CONSTANTS " + name + " TYPE " + mapType(javaType) + " VALUE " + expr(initializer.get()) + ".");
+      return;
+    }
+
+    String kw = isStatic ? "CLASS-DATA" : "DATA";
+    emit(out, indent, kw + " " + name + " TYPE " + ti.abapType + ".");
+
+    if (initializer.isPresent()) {
+      Expression init = initializer.get();
+      if (init.isNullLiteralExpr()) {
+        emit(out, indent, "CLEAR " + name + ".");
+      } else if (init.isObjectCreationExpr()) {
+        emit(out, indent, "\" TODO: initializer 'new ...' -> ABAP table is initial/empty by default; for objects use CREATE OBJECT");
+      } else {
+        emit(out, indent, name + " = " + expr(init) + ".");
+      }
+    }
+
+    if (isFinal && !isStatic) {
+      emit(out, indent, "\" TODO: final instance field (ABAP has no strict equivalent; consider READ-ONLY + no setter)");
+    }
+  }
+
+  private boolean isSimpleLiteral(Expression e) {
+    if (e == null) return false;
+    return e.isIntegerLiteralExpr() || e.isBooleanLiteralExpr() || e.isStringLiteralExpr()
+        || e.isCharLiteralExpr() || e.isDoubleLiteralExpr() || e.isLongLiteralExpr();
+  }
+
+  // ===========================
   // COMMENTS (Java -> ABAP)
-  // ---------------------------
+  // ===========================
+
   private void emitCompilationUnitHeaderComments(CompilationUnit cu, StringBuilder out) {
     if (cu == null) return;
     cu.getComment().ifPresent(c -> emitComment(c, out, 0));
@@ -893,9 +1221,10 @@ public class JavaToAbapTranslator {
     }
   }
 
-  // ---------------------------
+  // ===========================
   // MODIFIER HINTS
-  // ---------------------------
+  // ===========================
+
   private String methodModifiersHint(MethodDeclaration md) {
     if (md == null) return "";
     List<String> bits = new ArrayList<>();
@@ -920,17 +1249,67 @@ public class JavaToAbapTranslator {
     return "Java modifiers: " + String.join(", ", bits);
   }
 
-  // ---------------------------
-  // EXPR
-  // ---------------------------
+  // ===========================
+  // METHOD CALL STATEMENT EMISSION
+  // ===========================
+
+  private String abapMethodCallStatement(MethodCallExpr mc) {
+    String target;
+    if (mc.getScope().isPresent()) {
+      target = abapCallTarget(mc.getScope().get()) + mc.getNameAsString();
+    } else {
+      // unqualified call inside instance method -> me->
+      target = "me->" + mc.getNameAsString();
+    }
+
+    if (mc.getArguments().isEmpty()) {
+      return target + "( ).";
+    }
+
+    String args = mc.getArguments().stream().map(this::expr).collect(Collectors.joining(", "));
+    return "\" TODO: map Java args to ABAP named parameters manually: (" + args + ")\n"
+        + target + "( ).";
+  }
+
+  private String abapCallTarget(Expression scope) {
+    // returns something like "me->" / "super->" / "lo_obj->" / "zcl_x=>"
+    if (scope == null) return "me->";
+
+    if (scope.isThisExpr()) return "me->";
+    if (scope.isSuperExpr()) return "super->";
+
+    if (scope.isNameExpr()) {
+      String n = scope.asNameExpr().getNameAsString();
+      if (looksLikeTypeName(n)) {
+        return "zcl_" + toSnakeLower(n) + "=>";
+      }
+      return n + "->";
+    }
+
+    if (scope.isFieldAccessExpr()) {
+      String base = access(scope.asFieldAccessExpr());
+      if (base.endsWith("=>")) return base;
+      return base + "->";
+    }
+
+    return expr(scope) + "->";
+  }
+
+  // ===========================
+  // EXPR (Java expression -> ABAP-ish expression)
+  // ===========================
+
   private String expr(Expression e) {
     if (e == null) return "''";
+
+    if (e.isNullLiteralExpr()) return "INITIAL";
 
     if (e.isThisExpr()) return "me";
     if (e.isSuperExpr()) return "super";
 
     if (e.isNameExpr()) return e.asNameExpr().getNameAsString();
     if (e.isFieldAccessExpr()) return access(e.asFieldAccessExpr());
+
     if (e.isIntegerLiteralExpr()) return e.asIntegerLiteralExpr().getValue();
     if (e.isLongLiteralExpr()) return e.asLongLiteralExpr().getValue();
     if (e.isDoubleLiteralExpr()) return e.asDoubleLiteralExpr().getValue();
@@ -941,6 +1320,22 @@ public class JavaToAbapTranslator {
 
     if (e.isBinaryExpr()) {
       BinaryExpr b = e.asBinaryExpr();
+
+      // null comparisons: x == null / x != null
+      if ((b.getOperator() == BinaryExpr.Operator.EQUALS || b.getOperator() == BinaryExpr.Operator.NOT_EQUALS) &&
+          (b.getLeft().isNullLiteralExpr() || b.getRight().isNullLiteralExpr())) {
+        Expression other = b.getLeft().isNullLiteralExpr() ? b.getRight() : b.getLeft();
+        String opnd = expr(other);
+
+        boolean notEq = b.getOperator() == BinaryExpr.Operator.NOT_EQUALS;
+        boolean ref = looksLikeRefVar(opnd);
+
+        if (ref) {
+          return notEq ? (opnd + " IS BOUND") : (opnd + " IS NOT BOUND");
+        }
+        return notEq ? (opnd + " IS NOT INITIAL") : (opnd + " IS INITIAL");
+      }
+
       String op = switch (b.getOperator()) {
         case PLUS -> "+";
         case MINUS -> "-";
@@ -970,7 +1365,36 @@ public class JavaToAbapTranslator {
     if (e.isMethodCallExpr()) {
       MethodCallExpr mc = e.asMethodCallExpr();
       if (isSystemOutPrintln(mc) || isSystemOutPrint(mc)) return "''";
-      // ABAP has no expression-style method call like Java; emit hint
+
+      // Objects.isNull(x) / Objects.nonNull(x)
+      if (mc.getScope().isPresent() && mc.getScope().get().isNameExpr()
+          && mc.getScope().get().asNameExpr().getNameAsString().equals("Objects")
+          && mc.getArguments().size() == 1) {
+        String x = expr(mc.getArgument(0));
+        if (mc.getNameAsString().equals("isNull")) {
+          return looksLikeRefVar(x) ? (x + " IS NOT BOUND") : (x + " IS INITIAL");
+        }
+        if (mc.getNameAsString().equals("nonNull")) {
+          return looksLikeRefVar(x) ? (x + " IS BOUND") : (x + " IS NOT INITIAL");
+        }
+      }
+
+      // list.size() -> lines( list )
+      if (mc.getScope().isPresent() && mc.getArguments().isEmpty() && mc.getNameAsString().equals("size")) {
+        return "lines( " + expr(mc.getScope().get()) + " )";
+      }
+
+      // list.isEmpty() -> lines( list ) = 0
+      if (mc.getScope().isPresent() && mc.getArguments().isEmpty() && mc.getNameAsString().equals("isEmpty")) {
+        return "lines( " + expr(mc.getScope().get()) + " ) = 0";
+      }
+
+      // list.get(i) / map.get(k) used inside expressions:
+      // ABAP would need READ TABLE; we can't inline easily => comment placeholder
+      if (mc.getScope().isPresent() && mc.getNameAsString().equals("get") && mc.getArguments().size() == 1) {
+        return "\" TODO: get(...) in expression -> use READ TABLE ... INTO ... (cannot inline easily)";
+      }
+
       return "\" TODO: method-call expression -> ABAP needs CALL or inline DATA(...) for return";
     }
 
@@ -992,14 +1416,14 @@ public class JavaToAbapTranslator {
 
     if (e.isInstanceOfExpr()) {
       InstanceOfExpr io = e.asInstanceOfExpr();
-      return "\" TODO: instanceof -> ABAP: RTTI (cl_abap_typedescr) / IS INSTANCE OF";
+      return "\" TODO: instanceof -> ABAP: RTTI / IS INSTANCE OF (manual mapping)";
     }
 
     return "''";
   }
 
   private String access(FieldAccessExpr fa) {
-    // Handle chains: this.a.b -> me->a->b; super.x -> super->x
+    // Chains: this.a.b -> me->a->b ; super.x -> super->x ; Foo.BAR -> zcl_foo=>bar (best-effort)
     Expression scope = fa.getScope();
 
     if (scope.isThisExpr()) return "me->" + fa.getNameAsString();
@@ -1008,10 +1432,8 @@ public class JavaToAbapTranslator {
     if (scope.isNameExpr()) {
       String s = scope.asNameExpr().getNameAsString();
       if (looksLikeTypeName(s)) {
-        // static access: Foo.BAR -> zcl_foo=>bar (best-effort)
         return "zcl_" + toSnakeLower(s) + "=>" + toSnakeLower(fa.getNameAsString());
       }
-      // obj.field -> obj->field
       return s + "->" + fa.getNameAsString();
     }
 
@@ -1023,6 +1445,10 @@ public class JavaToAbapTranslator {
 
     return expr(scope) + "->" + fa.getNameAsString();
   }
+
+  // ===========================
+  // System.out prints
+  // ===========================
 
   private boolean isSystemOutPrintln(MethodCallExpr mc) {
     if (!mc.getNameAsString().equals("println")) return false;
@@ -1038,9 +1464,24 @@ public class JavaToAbapTranslator {
     return false;
   }
 
-  // ---------------------------
-  // HELPERS
-  // ---------------------------
+  private boolean isSystemOutPrint(MethodCallExpr mc) {
+    if (!mc.getNameAsString().equals("print")) return false;
+    if (mc.getScope().isEmpty()) return false;
+
+    Expression scope = mc.getScope().get();
+    if (scope.isFieldAccessExpr()) {
+      FieldAccessExpr fa = scope.asFieldAccessExpr();
+      return fa.getNameAsString().equals("out")
+          && fa.getScope().isNameExpr()
+          && fa.getScope().asNameExpr().getNameAsString().equals("System");
+    }
+    return false;
+  }
+
+  // ===========================
+  // Helpers
+  // ===========================
+
   private static void emit(StringBuilder out, int indent, String line) {
     out.append(" ".repeat(Math.max(0, indent))).append(line).append("\n");
   }
@@ -1089,7 +1530,6 @@ public class JavaToAbapTranslator {
 
   private boolean looksLikeTypeName(String n) {
     if (n == null || n.isBlank()) return false;
-    // simple heuristic: Java class names often start with uppercase
     return Character.isUpperCase(n.charAt(0));
   }
 }
