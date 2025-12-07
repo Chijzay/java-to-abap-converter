@@ -10,6 +10,7 @@ import com.github.javaparser.ast.comments.LineComment;
 import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.stmt.*;
 import org.springframework.stereotype.Service;
+import com.github.javaparser.ast.AccessSpecifier;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -315,23 +316,34 @@ public class JavaToAbapTranslator {
   
   private Section sectionOf(BodyDeclaration<?> d) {
     if (d == null) return Section.PUBLIC;
-    
-    // Robust across JavaParser versions: use getModifiers()
-    try {
-      // Most versions: getModifiers() returns NodeList<Modifier>
-      for (var m : d.getModifiers()) {
-        String kw = m.getKeyword().asString(); // "public", "protected", "private", ...
-        if ("public".equals(kw)) return Section.PUBLIC;
-        if ("protected".equals(kw)) return Section.PROTECTED;
-        if ("private".equals(kw)) return Section.PRIVATE;
-      }
-    }catch (Exception ignored) {
-    // fallback below
+
+    AccessSpecifier a;
+
+    if (d instanceof FieldDeclaration fd) {
+      a = fd.getAccessSpecifier();
+    } else if (d instanceof MethodDeclaration md) {
+      a = md.getAccessSpecifier();
+    } else if (d instanceof ConstructorDeclaration cd) {
+      a = cd.getAccessSpecifier();
+    } else if (d instanceof ClassOrInterfaceDeclaration cid) {
+      a = cid.getAccessSpecifier();
+    } else if (d instanceof EnumDeclaration ed) {
+      a = ed.getAccessSpecifier();
+    } else if (d instanceof RecordDeclaration rd) {
+      a = rd.getAccessSpecifier();
+    } else {
+
+      // unknown member type => safest guess
+      return Section.PROTECTED;
     }
-    
-    // package-private -> no direct ABAP equivalent; choose PROTECTED (safer than public)
-    return Section.PROTECTED;
-  }
+
+  return switch (a) {
+    case PUBLIC -> Section.PUBLIC;
+    case PROTECTED -> Section.PROTECTED;
+    case PRIVATE -> Section.PRIVATE;
+    case NONE -> Section.PROTECTED; // package-private
+  };
+}
 
   private void emitSection(
       StringBuilder out,
