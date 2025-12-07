@@ -5,12 +5,19 @@ Das Frontend läuft auf GitHub Pages und das Backend als Spring Boot REST API au
 
 **Hinweis:** Das Projekt ist ein **Subset-Translator**. Nicht jeder Java-Konstruktion entspricht 1 zu 1 ABAP. Unbekannte oder komplexe Elemente werden als `TODO` markiert.
 
+## Demo
+
+Die Webapplikation ist unter folgendem Link erreichbar:
+
+```
+https://chijzay.github.io/java-to-abap-converter/
+```
 
 ## Features
 
 - **Modi:** `Auto` (Erkennung), `Snippet`, `Class`
 - **REST API** (`/api/translate`) für Übersetzungen
-- **Health Endpoint** (`/api/health` inkl. Trailing Slash Support)
+- **Health Endpoint** (`/api/health` inklusive Trailing Slash Support)
 - **CORS-fähig** für GitHub Pages (`chijzay.github.io`)
 - **Syntax Highlighting**
   - Java via Prism.js
@@ -21,16 +28,8 @@ Das Frontend läuft auf GitHub Pages und das Backend als Spring Boot REST API au
   - Copy to Clipboard
   - Download als `.abap`
   - Beispiel-Snippets
-  - Status/LED-Anzeige
+  - Status mit LED-Anzeige
   - Reset-Button
-
-
-## Demo
-
-```
-https://chijzay.github.io/java-to-abap-converter/
-```
-
 
 ## Architektur
 
