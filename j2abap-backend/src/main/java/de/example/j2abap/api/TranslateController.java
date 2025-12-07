@@ -11,7 +11,7 @@ public class TranslateController {
 
   private final JavaToAbapTranslator translator = new JavaToAbapTranslator();
 
-  @PostMapping(value = "/translate", consumes = MediaType.TEXT_PLAIN_VALUE, produces = MediaType.TEXT_PLAIN_VALUE)
+  @PostMapping(value = {"/translate", "/translate/"}, consumes = MediaType.TEXT_PLAIN_VALUE, produces = MediaType.TEXT_PLAIN_VALUE)
   public ResponseEntity<String> translate(
       @RequestParam(name = "mode", defaultValue = "auto") String mode,
       @RequestBody String input
