@@ -9,19 +9,16 @@ public class CorsConfig implements WebMvcConfigurer {
 
   @Override
   public void addCorsMappings(CorsRegistry registry) {
-    registry.addMapping("/api/**")
-      // lokal + Koyeb (und optional Custom Domain später)
-      .allowedOriginPatterns(
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "https://*.koyeb.app",
-        "https://*.koyeb.com",
-        "https://*"
-      )
-      .allowedMethods("GET", "POST", "OPTIONS")
-      .allowedHeaders("*")
-      // falls du später Downloads per Header machst:
-      .exposedHeaders("Content-Disposition")
-      .maxAge(3600);
+    registry.addMapping("/**")
+        // Lokal (Vite etc.)
+        .allowedOriginPatterns(
+            "http://localhost:*",
+            "http://127.0.0.1:*",
+            // GitHub Pages (Origin ist NUR die Domain – ohne /repo-Pfad)
+            "https://chijzay.github.io"
+        )
+        .allowedMethods("GET", "POST", "OPTIONS")
+        .allowedHeaders("*")
+        .maxAge(3600);
   }
 }
