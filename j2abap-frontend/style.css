@@ -452,30 +452,3 @@ pre[class*="language-"]{ background: transparent !important; }
 .editor[data-lang="abap"] .token.string{ color:#2e9b3f; }
 .editor[data-lang="abap"] .token.comment{ color:#7b8794; font-style: italic; }
 
-/* ===== FORCE LIGHT MODE (Mac/Dark-Mode Override) ===== */
-:root { color-scheme: light !important; }
-
-@media (prefers-color-scheme: dark) {
-  :root { color-scheme: light !important; }
-}
-
-html, body {
-  background: #f5f6f7 !important;
-  color: #111827 !important;
-}
-
-a { color: #0a6ed1 !important; }
-
-/* Inputs / Editor */
-textarea, input, select, pre, code {
-  background: #ffffff !important;
-  color: #111827 !important;
-  border-color: #d0d7de !important;
-}
-
-/* Buttons */
-button {
-  background: #ffffff !important;
-  color: #111827 !important;
-  border-color: #d0d7de !important;
-}
