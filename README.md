@@ -98,3 +98,7 @@ https://chijzay.github.io/java-to-abap-converter/
 - Keine vollständige Java-Semantik, da keine vollständige ABAP-Entsprechung
 - Unbekannte Konstrukte werden als `TODO` ausgegeben
 - Ausgabe ist ABAP-ähnlich und ist als Grundlage bzw. Grundgerüst gedacht, nicht als garantierter Produktivcode
+
+## Lizenz
+
+Die Nutzung der Anwendung ist zu Demonstrations- und Lernzwecken erlaubt. Die kommerzielle Nutzung, Weitergabe, Vervielfältigung oder Verbreitung ist untersagt. Siehe `LICENSE` für Details.
