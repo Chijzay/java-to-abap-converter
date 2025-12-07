@@ -1,7 +1,7 @@
 const API_BASE =
   (location.hostname === "localhost" || location.hostname === "127.0.0.1")
     ? "http://localhost:8080"
-    : "https://DEINNAME-java-to-abap-api.fly.dev";
+    : "https://java-to-abap-api.fly.dev";
 
 const $in = document.getElementById("in");
 const $out = document.getElementById("out");
