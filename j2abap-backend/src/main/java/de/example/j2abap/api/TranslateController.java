@@ -1,6 +1,6 @@
 package de.example.j2abap.api;
 
-import de.example.j2abap.util.JavaToAbapTranslator;  
+import de.example.j2abap.JavaToAbapTranslator;  
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
