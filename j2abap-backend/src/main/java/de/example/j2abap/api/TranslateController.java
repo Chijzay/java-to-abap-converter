@@ -1,7 +1,6 @@
-package de.example.j2abap;
+package de.example.j2abap.api;
 
 import de.example.j2abap.JavaToAbapTranslator;
-import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,11 +14,12 @@ public class TranslateController {
     this.translator = translator;
   }
 
-  @PostMapping(
-      path = {"/translate", "/translate/"},
-      consumes = MediaType.TEXT_PLAIN_VALUE,
-      produces = MediaType.TEXT_PLAIN_VALUE
-  )
+  @GetMapping("/ping")
+  public ResponseEntity<String> ping() {
+    return ResponseEntity.ok("pong");
+  }
+
+  @PostMapping(path = {"/translate", "/translate/"})
   public ResponseEntity<String> translate(
       @RequestParam(name = "mode", defaultValue = "auto") String mode,
       @RequestBody(required = false) String javaCode
