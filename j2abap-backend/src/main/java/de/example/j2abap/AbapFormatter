@@ -1,0 +1,80 @@
+package de.example.j2abap;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public final class AbapFormatter {
+
+  private AbapFormatter() {}
+
+  public static String format(String src) {
+    if (src == null) return "";
+
+    // Normalize newlines + trim trailing spaces
+    String normalized = src.replace("\r\n", "\n").replace("\r", "\n");
+
+    String[] lines = normalized.split("\n", -1);
+    List<String> out = new ArrayList<>(lines.length);
+
+    int indent = 0;
+
+    for (String raw : lines) {
+      String line = rtrim(raw);
+
+      // keep empty lines but compress later
+      if (line.isBlank()) {
+        out.add("");
+        continue;
+      }
+
+      String upper = line.stripLeading().toUpperCase();
+
+      // Dedent BEFORE line for block-closers
+      if (startsWithAny(upper,
+          "ENDIF.", "ENDWHILE.", "ENDDO.", "ENDLOOP.", "ENDCASE.", "ENDTRY.",
+          "ENDMETHOD.", "ENDCLASS.", "ELSE.", "CATCH ", "WHEN ")) {
+        indent = Math.max(0, indent - 2);
+      }
+
+      String stripped = line.stripLeading();
+      String formattedLine = " ".repeat(indent) + stripped;
+      out.add(formattedLine);
+
+      // Indent AFTER line for block-openers
+      if (startsWithAny(upper,
+          "IF ", "WHILE ", "DO.", "LOOP AT ", "CASE ", "TRY.")) {
+        indent += 2;
+      }
+
+      // ELSE / WHEN / CATCH open a nested block visually
+      if (startsWithAny(upper, "ELSE.", "WHEN ", "CATCH ")) {
+        indent += 2;
+      }
+    }
+
+    // Compress multiple blank lines to max 1
+    List<String> compact = new ArrayList<>(out.size());
+    boolean prevBlank = false;
+    for (String l : out) {
+      boolean blank = l.isBlank();
+      if (blank && prevBlank) continue;
+      compact.add(l);
+      prevBlank = blank;
+    }
+
+    // Ensure final newline
+    String result = String.join("\n", compact).trim() + "\n";
+    return result;
+  }
+
+  private static boolean startsWithAny(String s, String... prefixes) {
+    for (String p : prefixes) if (s.startsWith(p)) return true;
+    return false;
+  }
+
+  private static String rtrim(String s) {
+    int i = s.length();
+    while (i > 0 && Character.isWhitespace(s.charAt(i - 1))) i--;
+    return s.substring(0, i);
+  }
+}
