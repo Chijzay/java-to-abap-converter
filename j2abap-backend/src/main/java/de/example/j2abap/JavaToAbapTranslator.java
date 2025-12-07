@@ -88,6 +88,7 @@ public class JavaToAbapTranslator {
 
       // Enums -> ABAP TYPES/CONSTANTS at snippet level
       indexEnums(cu);
+      inferEnumsFromSwitches(cu);
       emitEnumAbapDeclarationsSnippet(out);
 
       // translate wrapper method statements
@@ -127,7 +128,8 @@ public class JavaToAbapTranslator {
 
       // Enums (also used for constant mapping in expressions)
       indexEnums(cu);
-
+      inferEnumsFromSwitches(cu);
+      
       // First top-level class/interface/record/enum
       Optional<ClassOrInterfaceDeclaration> clsOpt = cu.findFirst(ClassOrInterfaceDeclaration.class);
       Optional<RecordDeclaration> recOpt = cu.findFirst(RecordDeclaration.class);
@@ -1111,6 +1113,58 @@ public class JavaToAbapTranslator {
       }
     }
   }
+private void inferEnumsFromSwitches(CompilationUnit cu) {
+  for (SwitchStmt ss : cu.findAll(SwitchStmt.class)) {
+    if (!ss.getSelector().isNameExpr()) continue;
+
+    String varName = ss.getSelector().asNameExpr().getNameAsString();
+    String typeName = resolveVarTypeName(ss, varName);
+    if (typeName == null) continue;
+    typeName = stripGeneric(typeName);
+
+    if (!looksLikeTypeName(typeName)) continue;
+    if (enumConstantsByType.containsKey(typeName)) continue;
+
+    List<String> labels = ss.getEntries().stream()
+        .flatMap(e -> e.getLabels().stream())
+        .filter(Expression::isNameExpr)
+        .map(e -> e.asNameExpr().getNameAsString())
+        .distinct()
+        .toList();
+
+    if (labels.isEmpty()) continue;
+
+    enumConstantsByType.put(typeName, labels);
+    for (String c : labels) {
+      enumTypesByConstant.computeIfAbsent(c, k -> new ArrayList<>()).add(typeName);
+    }
+  }
+}
+
+private String resolveVarTypeName(com.github.javaparser.ast.Node node, String varName) {
+  // 1) method params + locals
+  Optional<MethodDeclaration> md = node.findAncestor(MethodDeclaration.class);
+  if (md.isPresent()) {
+    for (Parameter p : md.get().getParameters()) {
+      if (p.getNameAsString().equals(varName)) return p.getTypeAsString();
+    }
+    for (VariableDeclarator vd : md.get().findAll(VariableDeclarator.class)) {
+      if (vd.getNameAsString().equals(varName)) return vd.getTypeAsString();
+    }
+  }
+
+  // 2) class fields
+  Optional<ClassOrInterfaceDeclaration> cd = node.findAncestor(ClassOrInterfaceDeclaration.class);
+  if (cd.isPresent()) {
+    for (FieldDeclaration fd : cd.get().getFields()) {
+      for (VariableDeclarator vd : fd.getVariables()) {
+        if (vd.getNameAsString().equals(varName)) return vd.getTypeAsString();
+      }
+    }
+  }
+
+  return null;
+}
 
   private void emitEnumAbapDeclarationsSnippet(StringBuilder out) {
     if (enumConstantsByType.isEmpty()) return;
