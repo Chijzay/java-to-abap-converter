@@ -1,4 +1,7 @@
-const API_BASE = "https://scattered-lebbie-steven-illg-it-f8b8abdf.koyeb.app";
+const API_BASE =
+  window.API_BASE ||
+  document.querySelector('meta[name="api-base"]')?.content ||
+  "https://scattered-lebbie-steven-illg-it-f8b8abdf.koyeb.app";
 
 const $in = document.getElementById("in");
 const $out = document.getElementById("out");
@@ -21,21 +24,17 @@ const $reset = document.getElementById("reset");
 
 const EXAMPLES = {
   snippet_print: `System.out.println(name);`,
-
   snippet_if: `int y = x + 1;
 if (y > 10) {
   System.out.println(y);
 } else {
   System.out.println(0);
 }`,
-
-
   class_simple: `public class Demo {
   int plusOne(int x) { 
   return x + 1; 
   }
 }`,
-
   class_hello: `/** HelloWorldApp prints "Hello World!" */
 public class HelloWorldApp {
   public static void main(String[] args) {
@@ -43,7 +42,6 @@ public class HelloWorldApp {
     System.out.println("Hello World!");
   }
 }`,
-
   class_trycatch: `public class DbJob {
   void runJob() {
     try {
@@ -112,40 +110,22 @@ function modeSanityCheck(mode, text) {
   return null;
 }
 
-/* cosmetic: backend wording */
 function prettifyTypeName(name) {
   if (!name) return name;
-
-  // z.B. TryStmt -> Try statement, MethodCallExpr -> Method call expression
   let s = String(name);
-
-  // Suffixe zuerst
   s = s.replace(/Stmt\b/g, " statement");
   s = s.replace(/Expr\b/g, " expression");
-
-  // CamelCase -> Words (Try statement stays fine)
   s = s.replace(/([a-z])([A-Z])/g, "$1 $2");
-
-  // kleine Extras: doppelte Spaces entfernen
   s = s.replace(/\s+/g, " ").trim();
-
-  // erstes Wort groß lassen, Rest so wie es kommt (wir wollen „ABAP“ etc. nicht kaputt machen)
   return s;
 }
 
 function beautifyBackendText(s) {
   if (!s) return s;
-
-  // 1) „TODO stmt/expr“ ausschreiben
   let out = String(s)
     .replace(/\bTODO\s+stmt\b/g, "TODO statement")
     .replace(/\bTODO\s+expr\b/g, "TODO expression");
 
-  // 2) Alles nach „TODO statement:“ bzw „TODO expression:“ hübschen, wenn dahinter ein Typname kommt
-  // Beispiele:
-  //   TODO statement: TryStmt  -> TODO statement: Try statement
-  //   TODO statement: IfStmt   -> TODO statement: If statement
-  //   TODO expression: NameExpr -> TODO expression: Name expression
   out = out.replace(/(TODO (?:statement|expression):\s*)([A-Za-z0-9_]+)\b/g, (m, p1, typeName) => {
     return p1 + prettifyTypeName(typeName);
   });
@@ -162,12 +142,12 @@ function countLines(text) {
 function updateGutter(gutterEl, textareaEl) {
   const lines = countLines(textareaEl.value || "");
   const digits = String(lines).length;
-  const w = Math.max(44, 26 + digits * 10); // px
+  const w = Math.max(44, 26 + digits * 10);
   document.documentElement.style.setProperty("--gutterW", `${w}px`);
 
   let out = "";
   for (let i = 1; i <= lines; i++) out += i + "\n";
-  gutterEl.textContent = out; // keep trailing newline for consistent line height
+  gutterEl.textContent = out;
   gutterEl.scrollTop = textareaEl.scrollTop;
 }
 
@@ -336,7 +316,23 @@ function downloadAbap() {
   URL.revokeObjectURL(a.href);
 }
 
+function setBusy(isBusy){
+  $go.disabled = isBusy;
+  $loadExample.disabled = isBusy;
+  $reset.disabled = isBusy;
+  $examples.disabled = isBusy;
+}
+
+function friendlyNetworkMessage(e){
+  const msg = (e?.message || String(e) || "").toLowerCase();
+  if (msg.includes("failed to fetch") || msg.includes("networkerror")) {
+    return "Netzwerk/CORS: Backend nicht erreichbar. Prüfe, ob dein Koyeb-Service läuft und CORS für chijzay.github.io erlaubt ist.";
+  }
+  return e.message || String(e);
+}
+
 async function doTranslate() {
+  setBusy(true);
   setStatus("übersetze…", "idle");
   clearOutput();
 
@@ -350,6 +346,7 @@ async function doTranslate() {
     setStatus("Hinweis", "warn");
     updateGutter($outGutter, $out);
     syncAllScroll();
+    setBusy(false);
     return;
   }
 
@@ -370,6 +367,7 @@ async function doTranslate() {
       setStatus("Fehler", "err");
       updateGutter($outGutter, $out);
       syncAllScroll();
+      setBusy(false);
       return;
     }
 
@@ -383,13 +381,15 @@ async function doTranslate() {
     updateGutter($outGutter, $out);
     syncAllScroll();
   } catch (e) {
-    const msg = beautifyBackendText(e.message || String(e));
+    const msg = beautifyBackendText(friendlyNetworkMessage(e));
     $out.value = msg;
     highlightAbap(msg);
     enableOutput(msg);
     setStatus("Fehler", "err");
     updateGutter($outGutter, $out);
     syncAllScroll();
+  } finally {
+    setBusy(false);
   }
 }
 
