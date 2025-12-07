@@ -1,0 +1,33 @@
+name: Build & Push Backend Image (GHCR)
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - "j2abap-backend/**"
+      - ".github/workflows/push-backend-image.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./j2abap-backend
+          file: ./j2abap-backend/Dockerfile
+          push: true
+          tags: ghcr.io/${{ github.repository }}:latest
