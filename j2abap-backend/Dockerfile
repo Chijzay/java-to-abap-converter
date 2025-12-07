@@ -1,11 +1,24 @@
-FROM maven:3.9-eclipse-temurin-17 AS build
+# ---- build stage ----
+FROM eclipse-temurin:21-jdk AS build
 WORKDIR /app
-COPY pom.xml .
-COPY src ./src
-RUN mvn -q -DskipTests package
 
-FROM eclipse-temurin:17-jre
+# Maven Wrapper + POM zuerst (bessere Cache-Nutzung)
+COPY .mvn/ .mvn/
+COPY mvnw pom.xml ./
+RUN chmod +x mvnw && ./mvnw -q -DskipTests dependency:go-offline
+
+# Source danach
+COPY src/ src/
+RUN ./mvnw -q -DskipTests package
+
+# ---- runtime stage ----
+FROM eclipse-temurin:21-jre
 WORKDIR /app
+
 COPY --from=build /app/target/*.jar app.jar
+
+ENV PORT=8080
 EXPOSE 8080
-ENTRYPOINT ["java","-jar","/app/app.jar"]
+
+# Spring Boot muss auf $PORT hören (Fly routet darauf)
+ENTRYPOINT ["sh","-c","exec java -Dserver.port=${PORT} -jar /app/app.jar"]
