@@ -22,8 +22,8 @@ https://chijzay.github.io/java-to-abap-converter/
 - **Health Endpoint** (`/api/health` inklusive Trailing Slash Support)
 - **CORS-fähig** für GitHub Pages (`chijzay.github.io`)
 - **Syntax Highlighting**
-  - Java via Prism.js
-  - ABAP via leichtgewichtigem Tokenizer im Frontend
+  - Java über `prism.js`
+  - ABAP über leichtgewichtigem Tokenizer im Frontend
     
 - **UX**
   - Zeilennummern (Gutter)
@@ -36,7 +36,7 @@ https://chijzay.github.io/java-to-abap-converter/
 ## Architektur
 
 **Frontend**
-- Statisches UI (HTML/CSS/JS)
+- Statisches UI (HTML, CSS und JavaScript)
 - Ruft Backend per `fetch()` auf
 - Zeigt Ergebnis in ABAP-Editor an (read-only)
 
