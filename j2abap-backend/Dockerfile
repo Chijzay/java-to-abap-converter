@@ -21,7 +21,5 @@ WORKDIR /app
 # Das gebaute Jar aus dem build stage holen
 COPY --from=build /workspace/target/*.jar /app/app.jar
 
-ENV PORT=8080
 EXPOSE 8080
-
-ENTRYPOINT ["sh","-c","exec java -Dserver.port=${PORT} -jar /app/app.jar"]
+ENTRYPOINT ["sh","-c","exec java -Dserver.port=${PORT:-8080} -jar /app/app.jar"]
