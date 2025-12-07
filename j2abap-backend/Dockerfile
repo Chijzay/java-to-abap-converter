@@ -2,11 +2,11 @@
 FROM maven:3.9.9-eclipse-temurin-21 AS build
 WORKDIR /app
 
-# Erst nur pom.xml kopieren (Caching)
+# Caching: erst nur pom.xml
 COPY j2abap-backend/pom.xml ./pom.xml
 RUN mvn -q -DskipTests dependency:go-offline
 
-# Dann Source kopieren und bauen
+# Dann Source + build
 COPY j2abap-backend/src ./src
 RUN mvn -q -DskipTests package
 
