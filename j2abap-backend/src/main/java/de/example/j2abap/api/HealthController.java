@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api")
 public class HealthController {
 
-  @GetMapping(
+@GetMapping(
       path = {"/health", "/health/"},
       produces = MediaType.TEXT_PLAIN_VALUE
   )
@@ -16,3 +16,6 @@ public class HealthController {
     return ResponseEntity.ok("OK");
   }
 }
+
+@GetMapping("/")
+public String root() { return "OK"; }
