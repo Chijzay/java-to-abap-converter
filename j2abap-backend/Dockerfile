@@ -8,7 +8,11 @@ RUN mvn -q -DskipTests dependency:go-offline
 
 # Dann Source
 COPY src ./src
-RUN mvn -q -DskipTests package
+RUN mvn -q -DskipTests package \
+ && ls -lah target \
+ && cp target/*.jar /app/app.jar
+...
+COPY --from=build /app/app.jar /app/app.jar
 
 # ---- runtime stage ----
 FROM eclipse-temurin:21-jre
@@ -16,8 +20,6 @@ WORKDIR /app
 
 COPY --from=build /app/target/*.jar app.jar
 
-# Koyeb setzt PORT automatisch – wir nutzen es.
-ENV PORT=8080
+# kein ENV PORT hier!
 EXPOSE 8080
-
-ENTRYPOINT ["sh","-c","exec java -Dserver.port=${PORT:-8080} -jar /app/app.jar"]
+ENTRYPOINT ["sh","-c","exec java -Dserver.port=${PORT} -jar /app/app.jar"]
