@@ -2,11 +2,13 @@
 FROM eclipse-temurin:21-jdk AS build
 WORKDIR /app
 
-COPY .mvn/ .mvn/
-COPY mvnw pom.xml ./
+# Maven Wrapper + POM aus dem Backend-Unterordner holen
+COPY j2abap-backend/.mvn/ .mvn/
+COPY j2abap-backend/mvnw j2abap-backend/pom.xml ./
 RUN chmod +x mvnw && ./mvnw -q -DskipTests dependency:go-offline
 
-COPY src/ src/
+# Source
+COPY j2abap-backend/src/ src/
 RUN ./mvnw -q -DskipTests package
 
 # ---- runtime stage ----
