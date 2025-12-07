@@ -1,4 +1,4 @@
-app = "DEIN-APP-NAME"
+app = "java-to-abap-converter"
 primary_region = "fra"
 
 [build]
