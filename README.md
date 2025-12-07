@@ -48,31 +48,39 @@ https://chijzay.github.io/java-to-abap-converter/
 ## Projektstruktur
 
 ```
-.
-├─ j2abap-frontend/
-│  ├─ index.html
-│  ├─ app.js
-│  └─ style.css
+.├─ .github/
+│  └─ workflows/
+│     ├─ pages.yml                 # Deployt das Frontend (GitHub Pages)
+│     └─ push-backend-image.yml    # Baut & pusht das Backend-Docker-Image (CI)
 │
 ├─ j2abap-backend/
-│  ├─ Dockerfile
-│  ├─ pom.xml
+│  ├─ Dockerfile                   # Container-Build für Spring Boot Backend
+│  ├─ pom.xml                      # Maven Build/Dependencies
+│  ├─ .dockerignore                # Verkleinert Docker-Build-Context
 │  └─ src/
 │     └─ main/
 │        ├─ java/
 │        │  └─ de/example/j2abap/
-│        │     ├─ ApiApplication.java
+│        │     ├─ ApiApplication.java          # Spring Boot Entry Point
+│        │     ├─ core/
+│        │     │  └─ JavaToAbapTranslator.java # Übersetzungslogik
 │        │     └─ api/
-│        │        ├─ TranslateController.java
-│        │        ├─ HealthController.java
-│        │        └─ CorsConfig.java
+│        │        ├─ TranslateController.java  # REST: /api/translate (POST)
+│        │        ├─ HealthController.java     # REST: /api/health (GET)
+│        │        └─ CorsConfig.java           # CORS für Frontend-Domain(s)
 │        └─ resources/
-│           └─ application.properties
+│           └─ application.properties          # Port/Config (z.B. server.port)
 │
-├─ .gitattributes
-└─ README.md
+├─ j2abap-frontend/
+│  ├─ app.js                       # UI-Logik: Fetch, Highlighting, Line-Numbers
+│  ├─ index.html                   # Layout, Controls und Editor-Struktur
+│  └─ style.css                    # SAP/Fiori-like Styling
+│
+├─ .gitattributes                  # EOL/CRLF-LF Regeln
+├─ .gitignore                      # Ignoriert Build/IDE/Node Artefakte
+├─ LICENSE                         # Portfolio Viewing Only License
+└─ README.md                       # Projektbeschreibung und Deploy
 ```
-
 
 ## Deployment
 
