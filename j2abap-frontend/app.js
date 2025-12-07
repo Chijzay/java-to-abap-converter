@@ -1,7 +1,6 @@
-const API_BASE =
-  (location.hostname === "localhost" || location.hostname === "127.0.0.1")
-    ? "http://localhost:8080"
-    : "https://j2abap-converter.koyeb.app";
+const API_BASE = (location.hostname === "localhost" || location.hostname === "127.0.0.1")
+  ? "http://localhost:8080"
+  : "https://scattered-lebbie-steven-illg-it-f8b8abdf.koyeb.app";
 
 const $in = document.getElementById("in");
 const $out = document.getElementById("out");
