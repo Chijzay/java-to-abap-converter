@@ -13,15 +13,16 @@ public class CorsConfig {
     return new WebMvcConfigurer() {
       @Override
       public void addCorsMappings(CorsRegistry registry) {
-        registry.addMapping("/api/**")
-        registry.addMapping("/api/**")
+          registry.addMapping("/api/**")
           .allowedOriginPatterns(
           "http://localhost:*",
           "http://127.0.0.1:*",
-          "https://*.github.io"
+          "https://*.github.io",
+          "https://*.koyeb.app"
           )
           .allowedMethods("GET", "POST", "OPTIONS")
           .allowedHeaders("*");
+
       }
     };
   }
