@@ -1,0 +1,85 @@
+############################################
+# OS / System
+############################################
+.DS_Store
+Thumbs.db
+desktop.ini
+
+############################################
+# Logs
+############################################
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+############################################
+# IDEs / Editors
+############################################
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+*.swp
+*.swo
+
+############################################
+# Java / Maven / Gradle
+############################################
+target/
+*.class
+*.jar
+*.war
+*.ear
+
+# Maven wrapper binaries are usually committed:
+# !mvnw
+# !mvnw.cmd
+# !.mvn/wrapper/maven-wrapper.jar
+# !.mvn/wrapper/maven-wrapper.properties
+
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+############################################
+# Spring Boot
+############################################
+*.pid
+*.pid.lock
+spring.log
+
+############################################
+# Node / Frontend (Vite etc.)
+############################################
+node_modules/
+dist/
+dist-ssr/
+.vite/
+.cache/
+coverage/
+
+############################################
+# Env / Secrets
+############################################
+.env
+.env.*
+!.env.example
+
+############################################
+# Docker
+############################################
+**/.dockerignore.bak
+
+############################################
+# Misc
+############################################
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
