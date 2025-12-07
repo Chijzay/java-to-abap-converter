@@ -1,33 +1,25 @@
 package de.example.j2abap.api;
 
-import org.springframework.http.MediaType;
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RestController;
-
 import java.time.Instant;
-import java.util.LinkedHashMap;
 import java.util.Map;
 
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
 @RestController
-@CrossOrigin(
-    origins = {
-        "https://chijzay.github.io",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173"
-    }
-)
+// Wichtig: unterstützt /api/... UND ohne /api (falls dein Frontend /translate statt /api/translate nutzt)
+@RequestMapping({"/api", ""})
 public class HealthController {
 
-  @GetMapping(
-      path = {"/api/health", "/api/health/"},
-      produces = MediaType.APPLICATION_JSON_VALUE
-  )
+  // Wichtig: Trailing Slash explizit erlauben
+  @GetMapping(value = {"/health", "/health/"}, produces = MediaType.APPLICATION_JSON_VALUE)
   public Map<String, Object> health() {
-    Map<String, Object> out = new LinkedHashMap<>();
-    out.put("status", "ok");
-    out.put("service", "java-to-abap-api");
-    out.put("time", Instant.now().toString());
-    return out;
+    return Map.of(
+        "status", "ok",
+        "service", "j2abap-backend",
+        "time", Instant.now().toString()
+    );
   }
 }
