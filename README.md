@@ -3,9 +3,7 @@
 Ein Web-Tool, das eine Teilmenge von Java-Code in ein ABAP-Grundgerüst übersetzt - entweder als _Snippet_ (einzelne Statements) oder als _Class_ (vereinfachtes Grundgerüst).  
 Das Frontend läuft auf GitHub Pages und das Backend als Spring Boot REST API auf Koyeb.
 
-**Hinweis:**
-
-Das Projekt ist ein **Subset-Translator**. Nicht jeder Java-Konstruktion entspricht 1 zu 1 ABAP. Unbekannte oder komplexe Elemente werden als `TODO` markiert.
+**Hinweis:** Das Projekt ist ein **Subset-Translator**. Nicht jeder Java-Konstruktion entspricht 1 zu 1 ABAP. Unbekannte oder komplexe Elemente werden als `TODO` markiert.
 
 
 ## Features
