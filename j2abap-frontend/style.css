@@ -573,3 +573,66 @@ html{
     max-width: none;
   }
 }
+
+/* ===== Beispiele: bündig + responsive (Desktop 1 Zeile, Mobile 2 Zeilen) ===== */
+.examples-row{
+  width: 100%;
+  margin: 10px 0 14px;     /* bündig zur Grid-Box darunter */
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.examples-label{
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* Desktop: Select kompakt, nicht über die ganze Seite */
+#examples{
+  width: auto;
+  min-width: 280px;
+  max-width: 520px;
+  flex: 1 1 auto;
+}
+
+/* Buttons bleiben kompakt */
+#loadExample,
+#reset{
+  white-space: nowrap;
+}
+
+/* Handy Hochformat: sauber 2 Zeilen, Laden/Reset nebeneinander */
+@media (max-width: 520px){
+  .examples-row{
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "label select"
+      "load  reset";
+    gap: 10px;
+    align-items: center;
+  }
+
+  .examples-label{ grid-area: label; }
+
+  #examples{
+    grid-area: select;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+
+  #loadExample{
+    grid-area: load;
+    width: 100%;
+  }
+
+  #reset{
+    grid-area: reset;
+    width: 100%;
+  }
+}
+
