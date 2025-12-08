@@ -18,37 +18,19 @@
 
   --fioriBlue:#0b5fff;
 
-  /* line numbers */
   --gutterBg:#f1f5f9;
   --gutterText:#64748b;
   --gutterBorder:#d6dbe6;
   --gutterW: 52px;
 }
 
-@media (prefers-color-scheme: dark){
-  :root{
-    --bg:#0b1020;
-    --bg2:#0f1730;
-    --card:#0f172a;
-    --border:rgba(255,255,255,.10);
-    --text:#e5e7eb;
-    --muted:#9aa4b2;
-
-    --editorBg:#0b1224;
-    --editorBorder:rgba(255,255,255,.12);
-
-    --gutterBg:#0a142b;
-    --gutterText:#94a3b8;
-    --gutterBorder:rgba(255,255,255,.10);
-
-    --shadow: 0 12px 30px rgba(0,0,0,.35);
-  }
+/* Immer hell – unabhängig vom OS */
+html{
+  height: 100%;
+  color-scheme: light;
 }
-
-*{ box-sizing:border-box; }
-html,body{ height:100%; }
-
 body{
+  height: 100%;
   margin:0;
   font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial;
   background:
@@ -59,16 +41,57 @@ body{
   overflow-x: hidden;
 }
 
+/* Dark Mode Overrides neutralisieren */
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#f5f7fa;
+    --bg2:#eef2ff;
+    --card:#ffffff;
+    --border:#e4e7ee;
+    --text:#0f172a;
+    --muted:#64748b;
+
+    --shadow: 0 10px 28px rgba(15,23,42,.10);
+
+    --editorBg:#ffffff;
+    --editorBorder:#d6dbe6;
+
+    --gutterBg:#f1f5f9;
+    --gutterText:#64748b;
+    --gutterBorder:#d6dbe6;
+  }
+}
+
+*{ box-sizing:border-box; }
+
+/* =========================================================
+   Layout: Desktop ohne Page-Scroll (nur Editoren scrollen)
+   ========================================================= */
 .wrap{
   max-width: 1540px;
-  margin: clamp(18px, 4vw, 40px) auto;
-  padding: 0 16px 56px;
+  margin: 0 auto;
+  padding: clamp(12px, 2.4vw, 28px) 16px 16px;
+
+  min-height: 100vh;
+  min-height: 100svh;
+  min-height: 100dvh;
+
   display:flex;
   flex-direction:column;
   gap: var(--gap);
 }
 
-/* Header */
+@media (min-width: 900px){
+  body{ overflow: hidden; } /* keine Page-Scrollbars */
+
+  .wrap{
+    height: 100dvh;
+  }
+}
+
+/* =========================================================
+   Header
+   ========================================================= */
 .header{
   display:grid;
   grid-template-columns: 1fr auto;
@@ -158,9 +181,6 @@ body{
   transition: transform .06s ease, background .12s ease, border-color .12s ease;
 }
 .btn:hover{ background: rgba(255,255,255,.75); }
-@media (prefers-color-scheme: dark){
-  .btn:hover{ background: rgba(255,255,255,.06); }
-}
 .btn:active{ transform: translateY(1px); }
 .btn:disabled{ opacity:.55; cursor:not-allowed; }
 
@@ -176,11 +196,279 @@ body{
 
 .small{ padding: 9px 12px; font-size: 13px; }
 .ghost{ background: rgba(255,255,255,.70); }
-@media (prefers-color-scheme: dark){
-  .ghost{ background: rgba(255,255,255,.06); }
+
+/* =========================================================
+   Beispiele: exakt bündig zur ABAP-Spalte (wie Grid)
+   ========================================================= */
+
+/* 2 Spalten wie Grid – Inhalte werden in die rechte (ABAP) Spalte gelegt */
+.examples-row{
+  width: 100%;
+  margin: 2px 0 0;
+
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--gap);
+  align-items: center;
 }
 
-/* info */
+/* rechter Block (= ABAP-Spalte) */
+.examples-row .examples-label,
+.examples-row #examples,
+.examples-row #loadExample,
+.examples-row #reset{
+  grid-column: 2;
+}
+
+/* Wir ordnen die Elemente innerhalb der rechten Spalte als Reihe an */
+.examples-row{
+  /* "Row" im rechten Block simulieren */
+}
+.examples-row .examples-label{ justify-self: end; }
+
+.examples-row #examples{
+  justify-self: end;
+  width: min(520px, 52vw);
+  min-width: 280px;
+  max-width: 520px;
+
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 12px;
+  border:1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+}
+
+/* Buttons rechts neben dem Select */
+.examples-row #loadExample,
+.examples-row #reset{
+  justify-self: end;
+  white-space: nowrap;
+}
+
+/* Desktop: rechte Spalte als inline Reihe – ohne HTML-Wrapper:
+   Wir nutzen grid-auto-flow über eine feinere Positionierung */
+@media (min-width: 1041px){
+  .examples-row{
+    grid-template-columns: 1fr auto auto auto;
+    gap: 10px;
+  }
+  .examples-row .examples-label{ grid-column: 2; justify-self: start; }
+  .examples-row #examples{ grid-column: 3; justify-self: end; }
+  .examples-row #loadExample{ grid-column: 4; justify-self: end; }
+  .examples-row #reset{ grid-column: 5; } /* wird ignoriert, weil nur 4 cols – daher: */
+  /* Korrigiert: 5 Spalten */
+  .examples-row{
+    grid-template-columns: 1fr auto minmax(280px, 520px) auto auto;
+  }
+  .examples-row .examples-label{ grid-column: 2; }
+  .examples-row #examples{ grid-column: 3; }
+  .examples-row #loadExample{ grid-column: 4; }
+  .examples-row #reset{ grid-column: 5; }
+}
+
+/* Tablet/Mobile: folgt der Grid-Umstellung */
+@media (max-width: 1040px){
+  .header{ grid-template-columns: 1fr; align-items:start; }
+  .controls{ justify-content:flex-start; }
+}
+
+/* Handy Hochformat: Label + Select oben, Buttons nebeneinander unten */
+@media (max-width: 520px){
+  .examples-row{
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "label select"
+      "load  reset";
+    gap: 10px;
+  }
+
+  .examples-row .examples-label{
+    grid-area: label;
+    justify-self: start;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .examples-row #examples{
+    grid-area: select;
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .examples-row #loadExample{
+    grid-area: load;
+    width: 100%;
+  }
+
+  .examples-row #reset{
+    grid-area: reset;
+    width: 100%;
+  }
+}
+
+/* =========================================================
+   Grid + Panels
+   ========================================================= */
+.grid{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--gap);
+
+  /* nimmt den Resthöhe ein (wichtig für macOS) */
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.panel{
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow:hidden;
+
+  display:flex;
+  flex-direction:column;
+  min-height: 0;
+}
+
+.panel-head{
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(rgba(255,255,255,.90), rgba(255,255,255,.70));
+}
+.panel-head h2{
+  margin:0;
+  font-size: 13px;
+  letter-spacing:.3px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+@media (max-width: 1040px){
+  .grid{ grid-template-columns: 1fr; }
+}
+
+/* =========================================================
+   Editor: füllt Panel (kein clamp) – Scroll nur innen
+   ========================================================= */
+.editor{
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  background: var(--editorBg);
+}
+
+/* frame */
+.editor::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  border: 1px solid var(--editorBorder);
+  border-top: none;
+  pointer-events:none;
+}
+
+/* gutter */
+.gutter{
+  position:absolute;
+  top:0;
+  left:0;
+  bottom:0;
+  width: var(--gutterW);
+  background: var(--gutterBg);
+  border-right: 1px solid var(--gutterBorder);
+
+  padding: 18px 10px 18px 0;
+  text-align: right;
+
+  font-family: Consolas, "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--gutterText);
+
+  overflow: hidden;
+  user-select: none;
+
+  white-space: pre;
+}
+
+/* wrap long lines */
+.editor textarea,
+.editor .code code{
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* textarea overlay */
+.editor textarea{
+  position:absolute;
+  inset:0;
+  width:100%;
+  height:100%;
+  border:0;
+  outline:none;
+  resize:none;
+  background: transparent;
+
+  color: transparent;
+  caret-color: var(--text);
+
+  padding: 18px 18px 18px calc(18px + var(--gutterW));
+
+  font-family: Consolas, "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 15px;
+  line-height: 1.6;
+
+  overflow:auto;
+  z-index: 2;
+}
+
+.editor.readonly textarea{ caret-color: transparent; }
+.editor textarea::placeholder{ color: var(--placeholder); }
+
+/* highlight layer */
+.editor .code{
+  position:absolute;
+  inset:0;
+  margin:0;
+  overflow:auto;
+  pointer-events:none;
+  z-index: 1;
+  background: transparent;
+  padding: 18px 18px 18px calc(18px + var(--gutterW));
+}
+
+.editor .code code{
+  font-family: Consolas, "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+/* Prism base */
+pre[class*="language-"]{ background: transparent !important; }
+
+/* Java */
+.editor[data-lang="java"] .token.keyword{ color:#7a3db8; font-weight: 800; }
+.editor[data-lang="java"] .token.class-name{ color: var(--text); font-weight: 800; }
+.editor[data-lang="java"] .token.function{ color: var(--text); }
+.editor[data-lang="java"] .token.string{ color:#2a5db0; }
+.editor[data-lang="java"] .token.comment{ color:#2aa84a; font-style: italic; }
+
+/* ABAP */
+.editor[data-lang="abap"] .token.keyword{ color:#1f4fd6; font-weight: 900; }
+.editor[data-lang="abap"] .token.string{ color:#2e9b3f; }
+.editor[data-lang="abap"] .token.comment{ color:#7b8794; font-style: italic; }
+
+/* =========================================================
+   Info
+   ========================================================= */
 .info{
   display:flex;
   align-items:flex-start;
@@ -192,6 +480,8 @@ body{
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   color: var(--muted);
+
+  flex: 0 0 auto;
 }
 .info-left{ display:flex; flex-direction:column; gap: 10px; max-width: 980px; }
 .info strong{ color: var(--text); }
@@ -201,9 +491,6 @@ body{
   background: rgba(15,23,42,.06);
   border:1px solid rgba(15,23,42,.10);
   color: var(--text);
-}
-@media (prefers-color-scheme: dark){
-  .info code{ background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.10); }
 }
 .hint{ font-size: 13px; }
 
@@ -216,9 +503,6 @@ kbd{
   padding: 2px 6px;
   border-radius: 8px;
   color: var(--text);
-}
-@media (prefers-color-scheme: dark){
-  kbd{ background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.14); color: var(--text); }
 }
 
 .info-right{
@@ -264,476 +548,7 @@ kbd{
 .led.err{ background:#ef4444; box-shadow: 0 0 0 4px rgba(239,68,68,.22); }
 .led.warn{ background:#f59e0b; box-shadow: 0 0 0 4px rgba(245,158,11,.22); }
 
-.examples{
-  display:flex;
-  gap:10px;
-  align-items:center;
-
-  /* FIX: Portrait overflow */
-  flex-wrap: wrap;
-  justify-content:flex-end;
-  width: 100%;
-}
-.label{
-  font-size: 12px;
-  color: var(--muted);
-  font-weight: 800;
-}
-.select{
-  height: 36px;
-  padding: 0 10px;
-  border-radius: 12px;
-  border:1px solid var(--border);
-  background: var(--card);
-  color: var(--text);
-
-  /* Makes it shrink nicely */
-  flex: 1 1 240px;
-  min-width: min(240px, 100%);
-}
-
-/* grid */
-.grid{
-  display:grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--gap);
-}
-
-/* panels */
-.panel{
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  overflow:hidden;
-}
-
-.panel-head{
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
-  background: linear-gradient(rgba(255,255,255,.90), rgba(255,255,255,.70));
-}
-@media (prefers-color-scheme: dark){
-  .panel-head{ background: linear-gradient(rgba(255,255,255,.06), rgba(255,255,255,.03)); }
-}
-
-.panel-head h2{
-  margin:0;
-  font-size: 13px;
-  letter-spacing:.3px;
-  color: var(--muted);
-  font-weight: 800;
-}
-
-/* editor */
-.editor{
-  position: relative;
-
-  /* FIX: kein HeaderH mehr, besser an Viewport gekoppelt */
-  height: clamp(320px, 52vh, 760px);
-  background: var(--editorBg);
-}
-@media (max-height: 820px){
-  .editor{ height: clamp(280px, 48vh, 640px); }
-}
-
 @media (max-width: 1040px){
-  .header{ grid-template-columns: 1fr; align-items:start; }
-  .controls{ justify-content:flex-start; }
-  .grid{ grid-template-columns: 1fr; }
   .info{ flex-direction:column; }
   .info-right{ align-items:flex-start; max-width: unset; }
-
-  /* Info auf Mobile nach unten */
-  .grid{ order: 2; }
-  .info{ order: 3; }
-}
-
-/* frame */
-.editor::before{
-  content:"";
-  position:absolute;
-  inset:0;
-  border: 1px solid var(--editorBorder);
-  border-top: none;
-  pointer-events:none;
-}
-
-/* gutter */
-.gutter{
-  position:absolute;
-  top:0;
-  left:0;
-  bottom:0;
-  width: var(--gutterW);
-  background: var(--gutterBg);
-  border-right: 1px solid var(--gutterBorder);
-
-  padding: 18px 10px 18px 0;
-  text-align: right;
-
-  font-family: Consolas, "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 15.5px;
-  line-height: 1.65;
-  color: var(--gutterText);
-
-  overflow: hidden;
-  user-select: none;
-
-  white-space: pre;
-  word-break: normal;
-  overflow-wrap: normal;
-}
-
-/* wrap long lines */
-.editor textarea,
-.editor .code code{
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-/* textarea overlay */
-.editor textarea{
-  position:absolute;
-  inset:0;
-  width:100%;
-  height:100%;
-  border:0;
-  outline:none;
-  resize:none;
-  background: transparent;
-
-  color: transparent;
-  caret-color: var(--text);
-
-  padding: 18px 18px 18px calc(18px + var(--gutterW));
-
-  font-family: Consolas, "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 15.5px;
-  line-height: 1.65;
-
-  overflow:auto;
-  z-index: 2;
-}
-
-.editor.readonly textarea{ caret-color: transparent; }
-.editor textarea::placeholder{ color: var(--placeholder); }
-
-/* highlight layer */
-.editor .code{
-  position:absolute;
-  inset:0;
-  margin:0;
-  overflow:auto;
-  pointer-events:none;
-  z-index: 1;
-  background: transparent;
-  padding: 18px 18px 18px calc(18px + var(--gutterW));
-}
-
-.editor .code code{
-  font-family: Consolas, "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 15.5px;
-  line-height: 1.65;
-  color: var(--text);
-}
-
-/* Prism base */
-pre[class*="language-"]{ background: transparent !important; }
-
-/* Java */
-.editor[data-lang="java"] .token.keyword{ color:#7a3db8; font-weight: 800; }
-.editor[data-lang="java"] .token.class-name{ color: var(--text); font-weight: 800; }
-.editor[data-lang="java"] .token.function{ color: var(--text); }
-.editor[data-lang="java"] .token.string{ color:#2a5db0; }
-.editor[data-lang="java"] .token.comment{ color:#2aa84a; font-style: italic; }
-
-/* ABAP */
-.editor[data-lang="abap"] .token.keyword{ color:#1f4fd6; font-weight: 900; }
-.editor[data-lang="abap"] .token.string{ color:#2e9b3f; }
-.editor[data-lang="abap"] .token.comment{ color:#7b8794; font-style: italic; }
-
-/* =========================================================
-   Force SAP Light Theme (ignoriert OS/Browser Dark Mode)
-   ========================================================= */
-html{
-  color-scheme: light; /* sorgt u.a. für helle Scrollbars/Form-Controls */
-}
-
-@media (prefers-color-scheme: dark){
-  /* Dark-Mode Variablen wieder zurück auf Light setzen */
-  :root{
-    --bg:#f5f7fa;
-    --bg2:#eef2ff;
-    --card:#ffffff;
-    --border:#e4e7ee;
-    --text:#0f172a;
-    --muted:#64748b;
-
-    --shadow: 0 10px 28px rgba(15,23,42,.10);
-
-    --editorBg:#ffffff;
-    --editorBorder:#d6dbe6;
-
-    --gutterBg:#f1f5f9;
-    --gutterText:#64748b;
-    --gutterBorder:#d6dbe6;
-  }
-
-  /* Dark-Mode Spezialfälle aus deiner CSS neutralisieren */
-  .btn:hover{ background: rgba(255,255,255,.75); }
-  .ghost{ background: rgba(255,255,255,.70); }
-
-  .info code{
-    background: rgba(15,23,42,.06);
-    border-color: rgba(15,23,42,.10);
-  }
-
-  kbd{
-    background: rgba(255,255,255,.90);
-    border-color: rgba(15,23,42,.18);
-    border-bottom-color: rgba(15,23,42,.28);
-    color: var(--text);
-  }
-
-  .panel-head{
-    background: linear-gradient(rgba(255,255,255,.90), rgba(255,255,255,.70));
-  }
-}
-
-/* Optional (empfohlen): macOS-Schrift “crisper” machen (keine 15.5px) */
-.editor textarea,
-.editor .code code,
-.gutter{
-  font-size: 15px;
-  line-height: 1.6;
-}
-
-/* =========================================================
-   Viewport-Fit Layout (Start sitzt ideal)
-   ========================================================= */
-
-/* statt großem Außenabstand: Seite nutzt den Viewport */
-.wrap{
-  margin: 0 auto; /* überschreibt margin: clamp(...) */
-  padding: clamp(12px, 2.4vw, 28px) 16px 16px;
-  min-height: 100vh;
-  min-height: 100svh; /* besser auf Mobile */
-  min-height: 100dvh; /* bestmöglich (Dynamic Viewport Height) */
-}
-
-/* Grid soll den restlichen Platz nehmen (Desktop) */
-.grid{
-  flex: 1;
-  min-height: 0;          /* wichtig für flex/grid overflow */
-  align-items: stretch;
-  grid-template-rows: 1fr; /* Items bekommen gleiche Höhe */
-}
-
-/* Panels als Flex-Container, damit der Editor “füllen” kann */
-.panel{
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-
-/* Editor NICHT mehr über clamp fixieren → füllt Panel-Höhe */
-.editor{
-  height: auto;      /* überschreibt height: clamp(...) */
-  flex: 1;
-  min-height: 280px; /* Sicherheits-Minimum */
-}
-
-/* Auf kleineren Screens darf es wieder “natürlich” fließen */
-@media (max-width: 1040px){
-  .grid{ flex: initial; }
-  .editor{ min-height: 320px; }
-}
-
-/* iOS/Safari Auto-Zoom beim Tippen vermeiden */
-@media (max-width: 520px){
-  .editor textarea,
-  .editor .code code,
-  .gutter{
-    font-size: 16px;
-  }
-}
-
-/* Beispiele kompakt statt 100% Breite */
-#examples{
-  width: auto;            /* nicht full-width */
-  min-width: 260px;       /* angenehm lesbar */
-  max-width: 520px;       /* nicht zu breit */
-}
-
-@media (max-width: 760px){
-  #examples{
-    width: 100%;          /* auf Handy darf es ruhig breit sein */
-    min-width: 0;
-    max-width: none;
-  }
-}
-
-/* ===== Beispiele: bündig + responsive (Desktop 1 Zeile, Mobile 2 Zeilen) ===== */
-.examples-row{
-  width: 100%;
-  margin: 10px 0 14px;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end; /* <-- DAS macht es rechtsbündig */
-  gap: 10px;
-}
-
-.examples-label{
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-/* Desktop: Select kompakt, nicht über die ganze Seite */
-#examples{
-  width: auto;
-  min-width: 280px;
-  max-width: 520px;
-  flex: 1 1 auto;
-}
-
-/* Buttons bleiben kompakt */
-#loadExample,
-#reset{
-  white-space: nowrap;
-}
-
-/* Handy Hochformat: sauber 2 Zeilen, Laden/Reset nebeneinander */
-@media (max-width: 520px){
-  .examples-row{
-    display: grid;
-    grid-template-columns: auto 1fr;
-    grid-template-areas:
-      "label select"
-      "load  reset";
-    gap: 10px;
-    align-items: center;
-  }
-
-  .examples-label{ grid-area: label; }
-
-  #examples{
-    grid-area: select;
-    width: 100%;
-    min-width: 0;
-    max-width: none;
-  }
-
-  #loadExample{
-    grid-area: load;
-    width: 100%;
-  }
-
-  #reset{
-    grid-area: reset;
-    width: 100%;
-  }
-}
-
-/* =========================================================
-   Desktop: App-fest im Viewport (kein Page-Scroll),
-   Scroll nur in den Editoren
-   ========================================================= */
-html, body{
-  height: 100%;
-}
-
-body{
-  margin: 0;
-}
-
-/* Auf Desktop (breit genug) soll die Seite nicht scrollen */
-@media (min-width: 900px){
-  body{
-    overflow: hidden;
-  }
-
-  .wrap{
-    height: 100dvh;
-    display: flex;
-    flex-direction: column;
-    margin: 0 auto;                 /* bündig, kein großes Außenmargin */
-    padding: clamp(12px, 2.4vw, 28px) 16px 16px;
-  }
-
-  .header,
-  .examples-row,
-  .info{
-    flex: 0 0 auto;
-  }
-
-  .grid{
-    flex: 1 1 auto;
-    min-height: 0;                  /* extrem wichtig für macOS */
-  }
-
-  .panel{
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .editor{
-    flex: 1 1 auto;
-    min-height: 0;
-    height: auto;                   /* überschreibt alte clamp-höhen */
-  }
-}
-
-/* =========================================================
-   Beispiele: rechtsbündig + bündig zur Grid-Breite
-   ========================================================= */
-.examples-row{
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end !important; /* Mac “Override” falls was reinfunkt */
-  gap: 10px;
-  margin: 10px 0 14px;
-}
-
-.examples-row #examples{
-  width: auto !important;
-  min-width: 280px;
-  max-width: 520px;
-  flex: 1 1 auto;
-}
-
-/* Handy: 2-zeilig, Laden & Reset nebeneinander */
-@media (max-width: 520px){
-  .examples-row{
-    display: grid;
-    grid-template-columns: auto 1fr;
-    grid-template-areas:
-      "label select"
-      "load  reset";
-    align-items: center;
-    gap: 10px;
-  }
-
-  .examples-row .examples-label{ grid-area: label; }
-
-  .examples-row #examples{
-    grid-area: select;
-    width: 100% !important;
-    min-width: 0;
-    max-width: none;
-  }
-
-  .examples-row #loadExample{
-    grid-area: load;
-    width: 100%;
-  }
-
-  .examples-row #reset{
-    grid-area: reset;
-    width: 100%;
-  }
 }
