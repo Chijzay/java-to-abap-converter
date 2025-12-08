@@ -1,28 +1,34 @@
 const API_BASE = "https://scattered-lebbie-steven-illg-it-f8b8abdf.koyeb.app";
 
-// Start immer oben (verhindert "komisch" gescrollte Startposition)
+/* Start immer oben (verhindert "komisch" gescrollte Startposition) */
 try { if ("scrollRestoration" in history) history.scrollRestoration = "manual"; } catch {}
 window.scrollTo(0, 0);
 
-const $in = document.getElementById("in");
-const $out = document.getElementById("out");
-const $inHL = document.getElementById("inHL");
-const $outHL = document.getElementById("outHL");
+/* ===== Helpers ===== */
+const $ = (id) => document.getElementById(id);
 
-const $inGutter = document.getElementById("inGutter");
-const $outGutter = document.getElementById("outGutter");
+/* ===== Elements (required) ===== */
+const $in = $("in");
+const $out = $("out");
+const $inHL = $("inHL");
+const $outHL = $("outHL");
 
-const $go = document.getElementById("translate");
-const $copy = document.getElementById("copy");
-const $download = document.getElementById("download");
-const $status = document.getElementById("status");
-const $led = document.getElementById("led");
-const $autoBadge = document.getElementById("autoBadge");
+const $inGutter = $("inGutter");
+const $outGutter = $("outGutter");
 
-const $examples = document.getElementById("examples");
-const $loadExample = document.getElementById("loadExample");
-const $reset = document.getElementById("reset");
+const $go = $("translate");
+const $copy = $("copy");
+const $download = $("download");
+const $status = $("status");
+const $led = $("led");
+const $autoBadge = $("autoBadge");
 
+/* ===== Elements (optional – falls du Beispiele/Reset umbaust) ===== */
+const $examples = $("examples");
+const $loadExample = $("loadExample");
+const $reset = $("reset");
+
+/* ===== Examples ===== */
 const EXAMPLES = {
   snippet_print: `System.out.println(name);`,
   snippet_if: `int y = x + 1;
@@ -42,12 +48,12 @@ switch (day) {
   default:
     System.out.println("Other");
 }`,
-snippet_new: `Person p = new Person();
+  snippet_new: `Person p = new Person();
 p.reset();
 System.out.println("Instanz erstellt");`,
   class_simple: `public class Demo {
-  int plusOne(int x) { 
-    return x + 1; 
+  int plusOne(int x) {
+    return x + 1;
   }
 }`,
   class_hello: `/** HelloWorldApp prints "Hello World!" */
@@ -69,6 +75,7 @@ public class HelloWorldApp {
   }
 }`,
   class_enum: `public class EnumDemo {
+
   enum Level {
     LOW,
     MEDIUM,
@@ -84,9 +91,9 @@ public class HelloWorldApp {
     }
   }
 }`,
-
 };
 
+/* ===== Placeholders ===== */
 $in.placeholder = EXAMPLES.class_hello;
 
 $out.placeholder = `* Beispiel-Output (ABAP)
@@ -100,6 +107,7 @@ CATCH cx_sy_open_sql_db.
   MESSAGE 'Car database could not be updated' TYPE 'I' DISPLAY LIKE 'E'.
 ENDTRY.`;
 
+/* ===== Mode ===== */
 function getMode() {
   const el = document.querySelector('input[name="mode"]:checked');
   return el ? el.value : "auto";
@@ -111,17 +119,21 @@ function detectLooksLikeClass(text) {
       || s.startsWith("package ") || s.startsWith("import ");
 }
 
+/* ===== Status ===== */
 function setLed(state) {
+  if (!$led) return;
   $led.classList.remove("idle","ok","err","warn");
   $led.classList.add(state);
 }
 
 function setStatus(text, state = "idle") {
-  $status.textContent = text;
+  if ($status) $status.textContent = text;
   setLed(state);
 }
 
 function setAutoBadge() {
+  if (!$autoBadge) return;
+
   const mode = getMode();
   if (mode !== "auto") {
     $autoBadge.textContent = "Auto: —";
@@ -142,6 +154,7 @@ function modeSanityCheck(mode, text) {
   return null;
 }
 
+/* ===== Beautify backend text ===== */
 function prettifyTypeName(name) {
   if (!name) return name;
   let s = String(name);
@@ -172,6 +185,8 @@ function countLines(text) {
 }
 
 function updateGutter(gutterEl, textareaEl) {
+  if (!gutterEl || !textareaEl) return;
+
   const lines = countLines(textareaEl.value || "");
   const digits = String(lines).length;
   const w = Math.max(44, 26 + digits * 10);
@@ -184,19 +199,22 @@ function updateGutter(gutterEl, textareaEl) {
 }
 
 function syncScroll(textarea, pre) {
+  if (!textarea || !pre) return;
   pre.scrollTop = textarea.scrollTop;
   pre.scrollLeft = textarea.scrollLeft;
 }
 
 function syncAllScroll() {
-  $inGutter.scrollTop = $in.scrollTop;
-  $outGutter.scrollTop = $out.scrollTop;
-  syncScroll($in, $inHL.parentElement);
-  syncScroll($out, $outHL.parentElement);
+  if ($inGutter && $in) $inGutter.scrollTop = $in.scrollTop;
+  if ($outGutter && $out) $outGutter.scrollTop = $out.scrollTop;
+
+  if ($in && $inHL?.parentElement) syncScroll($in, $inHL.parentElement);
+  if ($out && $outHL?.parentElement) syncScroll($out, $outHL.parentElement);
 }
 
 /* ===== Highlighting ===== */
 function highlightJava(text) {
+  if (!$inHL) return;
   $inHL.textContent = text || "";
   $inHL.className = "language-java";
   if (window.Prism && Prism.highlightElement) Prism.highlightElement($inHL);
@@ -300,10 +318,12 @@ function renderAbap(tokens) {
 }
 
 function highlightAbap(text) {
+  if (!$outHL) return;
   if (!text) { $outHL.innerHTML = ""; return; }
   $outHL.innerHTML = renderAbap(tokenizeAbap(text));
 }
 
+/* ===== HTTP errors ===== */
 async function parseErrorBody(res) {
   const ct = (res.headers.get("content-type") || "").toLowerCase();
   if (ct.includes("application/json")) {
@@ -325,17 +345,16 @@ function stripNoisyStacktrace(msg) {
 
 /* ===== Output actions ===== */
 function clearOutput() {
-  // Placeholder soll erscheinen -> value leer lassen (textarea-placeholder wird angezeigt)
   $out.value = "";
   highlightAbap("");
-  $copy.disabled = true;
-  $download.disabled = true;
+  if ($copy) $copy.disabled = true;
+  if ($download) $download.disabled = true;
   updateGutter($outGutter, $out);
 }
 
 function enableOutput(text) {
-  $copy.disabled = !text;
-  $download.disabled = !text;
+  if ($copy) $copy.disabled = !text;
+  if ($download) $download.disabled = !text;
 }
 
 function downloadAbap() {
@@ -350,26 +369,24 @@ function downloadAbap() {
 }
 
 function setBusy(isBusy){
-  $go.disabled = isBusy;
-  $loadExample.disabled = isBusy;
-  $reset.disabled = isBusy;
-  $examples.disabled = isBusy;
+  if ($go) $go.disabled = isBusy;
+  if ($loadExample) $loadExample.disabled = isBusy;
+  if ($reset) $reset.disabled = isBusy;
+  if ($examples) $examples.disabled = isBusy;
 }
 
 function friendlyNetworkMessage(e){
   const msg = (e?.message || String(e) || "").toLowerCase();
   if (msg.includes("failed to fetch") || msg.includes("networkerror")) {
-    return "Netzwerk/CORS: Backend nicht erreichbar. Prüfe, ob dein Koyeb-Service läuft und CORS für chijzay.github.io erlaubt ist.";
+    return "Netzwerk/CORS: Backend nicht erreichbar. Prüfe, ob dein Koyeb-Service läuft und CORS korrekt gesetzt ist.";
   }
-  return e.message || String(e);
+  return e?.message || String(e);
 }
 
+/* ===== Translate ===== */
 async function doTranslate() {
   setBusy(true);
   setStatus("übersetze…", "idle");
-
-  // ✅ WICHTIG: NICHT clearOutput() hier!
-  // -> so bleibt das alte Ergebnis stehen und der Placeholder erscheint nicht beim Laden.
 
   const mode = getMode();
   const sanity = modeSanityCheck(mode, $in.value);
@@ -444,7 +461,6 @@ $in.addEventListener("input", () => {
   setAutoBadge();
   updateGutter($inGutter, $in);
 
-  // ✅ Wenn Input komplett leer ist -> Output auf Placeholder zurücksetzen
   if (($in.value || "").trim() === "") {
     clearOutput();
     setStatus("bereit", "idle");
@@ -487,22 +503,27 @@ $download.addEventListener("click", () => {
   setStatus("download", "ok");
 });
 
-$loadExample.addEventListener("click", () => {
-  const key = $examples.value;
-  $in.value = EXAMPLES[key] || "";
-  highlightJava($in.value);
-  setAutoBadge();
-  updateGutter($inGutter, $in);
-  setStatus("Beispiel geladen", "idle");
-  syncAllScroll();
-});
+/* Examples (nur wenn Elemente existieren) */
+if ($loadExample && $examples) {
+  $loadExample.addEventListener("click", () => {
+    const key = $examples.value;
+    $in.value = EXAMPLES[key] || "";
+    highlightJava($in.value);
+    setAutoBadge();
+    updateGutter($inGutter, $in);
+    setStatus("Beispiel geladen", "idle");
+    syncAllScroll();
+  });
+}
 
-$reset.addEventListener("click", () => {
-  $in.value = "";
-  highlightJava("");
-  setAutoBadge();
-  updateGutter($inGutter, $in);
-  clearOutput(); // ✅ Reset soll Placeholder zeigen
-  setStatus("bereit", "idle");
-  syncAllScroll();
-});
+if ($reset) {
+  $reset.addEventListener("click", () => {
+    $in.value = "";
+    highlightJava("");
+    setAutoBadge();
+    updateGutter($inGutter, $in);
+    clearOutput();
+    setStatus("bereit", "idle");
+    syncAllScroll();
+  });
+}
