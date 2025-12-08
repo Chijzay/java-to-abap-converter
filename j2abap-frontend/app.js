@@ -1,5 +1,9 @@
 const API_BASE = "https://scattered-lebbie-steven-illg-it-f8b8abdf.koyeb.app";
 
+// Start immer oben (verhindert "komisch" gescrollte Startposition)
+try { if ("scrollRestoration" in history) history.scrollRestoration = "manual"; } catch {}
+window.scrollTo(0, 0);
+
 const $in = document.getElementById("in");
 const $out = document.getElementById("out");
 const $inHL = document.getElementById("inHL");
