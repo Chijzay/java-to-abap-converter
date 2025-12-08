@@ -38,9 +38,9 @@ switch (day) {
   default:
     System.out.println("Other");
 }`,
-  snippet_obj: `Person p = new Person();
-  p.reset();
-  System.out.println("Instanz erstellt");`,
+snippet_new: `Person p = new Person();
+p.reset();
+System.out.println("Instanz erstellt");`,
   class_simple: `public class Demo {
   int plusOne(int x) { 
     return x + 1; 
