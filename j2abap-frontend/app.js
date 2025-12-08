@@ -38,7 +38,10 @@ switch (day) {
   default:
     System.out.println("Other");
 }`,
-  class_simple: `public class Demo {
+  snippet_objinstanz: `Person p = new Person();
+    p.reset();
+    System.out.println("Instanz erstellt");`,
+    class_simple: `public class Demo {
   int plusOne(int x) { 
   return x + 1; 
   }
@@ -60,7 +63,24 @@ public class HelloWorldApp {
       System.out.println("Error");
     }
   }
+}`,
+  class_enum: `public class EnumDemo {
+  enum Level {
+    LOW,
+    MEDIUM,
+    HIGH
+  }
+
+  String label(Level level) {
+    switch (level) {
+      case LOW: return "Niedrig";
+      case MEDIUM: return "Mittel";
+      case HIGH: return "Hoch";
+      default: return "Unbekannt";
+    }
+  }
 }`
+
 };
 
 $in.placeholder = EXAMPLES.class_hello;
