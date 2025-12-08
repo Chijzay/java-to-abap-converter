@@ -59,15 +59,6 @@ body{
   overflow-x: hidden;
 }
 
-.wrap{
-  max-width: 1540px;
-  margin: clamp(18px, 4vw, 40px) auto;
-  padding: 0 16px 56px;
-  display:flex;
-  flex-direction:column;
-  gap: var(--gap);
-}
-
 /* Header */
 .header{
   display:grid;
@@ -326,13 +317,7 @@ kbd{
 }
 
 /* editor */
-.editor{
-  position: relative;
 
-  /* FIX: kein HeaderH mehr, besser an Viewport gekoppelt */
-  height: clamp(320px, 52vh, 760px);
-  background: var(--editorBg);
-}
 @media (max-height: 820px){
   .editor{ height: clamp(280px, 48vh, 640px); }
 }
