@@ -507,3 +507,53 @@ html{
   font-size: 15px;
   line-height: 1.6;
 }
+
+/* =========================================================
+   Viewport-Fit Layout (Start sitzt ideal)
+   ========================================================= */
+
+/* statt großem Außenabstand: Seite nutzt den Viewport */
+.wrap{
+  margin: 0 auto; /* überschreibt margin: clamp(...) */
+  padding: clamp(12px, 2.4vw, 28px) 16px 16px;
+  min-height: 100vh;
+  min-height: 100svh; /* besser auf Mobile */
+  min-height: 100dvh; /* bestmöglich (Dynamic Viewport Height) */
+}
+
+/* Grid soll den restlichen Platz nehmen (Desktop) */
+.grid{
+  flex: 1;
+  min-height: 0;          /* wichtig für flex/grid overflow */
+  align-items: stretch;
+  grid-template-rows: 1fr; /* Items bekommen gleiche Höhe */
+}
+
+/* Panels als Flex-Container, damit der Editor “füllen” kann */
+.panel{
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Editor NICHT mehr über clamp fixieren → füllt Panel-Höhe */
+.editor{
+  height: auto;      /* überschreibt height: clamp(...) */
+  flex: 1;
+  min-height: 280px; /* Sicherheits-Minimum */
+}
+
+/* Auf kleineren Screens darf es wieder “natürlich” fließen */
+@media (max-width: 1040px){
+  .grid{ flex: initial; }
+  .editor{ min-height: 320px; }
+}
+
+/* iOS/Safari Auto-Zoom beim Tippen vermeiden */
+@media (max-width: 520px){
+  .editor textarea,
+  .editor .code code,
+  .gutter{
+    font-size: 16px;
+  }
+}
