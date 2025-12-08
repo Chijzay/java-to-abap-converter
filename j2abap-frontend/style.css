@@ -637,3 +637,103 @@ html{
   }
 }
 
+/* =========================================================
+   Desktop: App-fest im Viewport (kein Page-Scroll),
+   Scroll nur in den Editoren
+   ========================================================= */
+html, body{
+  height: 100%;
+}
+
+body{
+  margin: 0;
+}
+
+/* Auf Desktop (breit genug) soll die Seite nicht scrollen */
+@media (min-width: 900px){
+  body{
+    overflow: hidden;
+  }
+
+  .wrap{
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    margin: 0 auto;                 /* bündig, kein großes Außenmargin */
+    padding: clamp(12px, 2.4vw, 28px) 16px 16px;
+  }
+
+  .header,
+  .examples-row,
+  .info{
+    flex: 0 0 auto;
+  }
+
+  .grid{
+    flex: 1 1 auto;
+    min-height: 0;                  /* extrem wichtig für macOS */
+  }
+
+  .panel{
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .editor{
+    flex: 1 1 auto;
+    min-height: 0;
+    height: auto;                   /* überschreibt alte clamp-höhen */
+  }
+}
+
+/* =========================================================
+   Beispiele: rechtsbündig + bündig zur Grid-Breite
+   ========================================================= */
+.examples-row{
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end !important; /* Mac “Override” falls was reinfunkt */
+  gap: 10px;
+  margin: 10px 0 14px;
+}
+
+.examples-row #examples{
+  width: auto !important;
+  min-width: 280px;
+  max-width: 520px;
+  flex: 1 1 auto;
+}
+
+/* Handy: 2-zeilig, Laden & Reset nebeneinander */
+@media (max-width: 520px){
+  .examples-row{
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "label select"
+      "load  reset";
+    align-items: center;
+    gap: 10px;
+  }
+
+  .examples-row .examples-label{ grid-area: label; }
+
+  .examples-row #examples{
+    grid-area: select;
+    width: 100% !important;
+    min-width: 0;
+    max-width: none;
+  }
+
+  .examples-row #loadExample{
+    grid-area: load;
+    width: 100%;
+  }
+
+  .examples-row #reset{
+    grid-area: reset;
+    width: 100%;
+  }
+}
