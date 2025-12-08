@@ -3,6 +3,7 @@ package de.example.j2abap;
 import com.github.javaparser.StaticJavaParser;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.*;
 import com.github.javaparser.ast.comments.BlockComment;
 import com.github.javaparser.ast.comments.Comment;
@@ -13,26 +14,36 @@ import com.github.javaparser.ast.stmt.*;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Java -> ABAP best-effort translator (JavaParser-based).
  *
- * Key improvements vs. your original:
- * - Thread-safe: no mutable Spring-singleton fields; per-translation Context object
- * - ABAP ADT classrun output for Java main(): emits IF_OO_ADT_CLASSRUN + out->write(...)
- * - Counting-while optimization:
- *     int j=0; while (j<10){ println(j+1+". Hello!"); j++; }
- *   => DO 10 TIMES. out->write( |{ sy-index }. Hello!| ). ENDDO.
- * - Cleaner emit/format helpers and smaller “TODO” surface
+ * Highlights:
+ * - "classic for" (for i=0; i<names.length; i++) -> LOOP AT names INTO DATA(name).
+ * - String[] init {"a","b"} -> ABAP VALUE #( ( 'a' ) ( 'b' ) )
+ * - names[i] -> name (when loop-substitution is safe) OR names[ i + 1 ] fallback
+ * - .equals(...) / .equalsIgnoreCase(...)
+ * - Java string concat with '+' -> ABAP string template |...{ }...|
+ * - break -> EXIT.
  */
 @Service
 public class JavaToAbapTranslator {
 
-  // =========================================================
-  // Public API
-  // =========================================================
-  public String translateAuto(String javaCode) {
+  // ===========================
+  // per-translation state
+  // ===========================
+  private final Map<String, List<String>> enumConstantsByType = new LinkedHashMap<>();
+  private final Map<String, List<String>> enumTypesByConstant = new HashMap<>();
+
+  // map: "<arrayName>#<indexVar>" -> "<loopVar>" (for-loop optimization substitution)
+  private final Map<String, String> arrayIndexSubst = new HashMap<>();
+
+  private enum OutputStyle { LIST_WRITE, CLASSRUN_OUT }
+
+  // ===========================
+  // Public API (synchronized because this Spring @Service keeps state)
+  // ===========================
+  public synchronized String translateAuto(String javaCode) {
     String src = normalize(javaCode);
     if (src.isBlank()) return "\n";
 
@@ -40,18 +51,19 @@ public class JavaToAbapTranslator {
     if (a.ok && a.cu != null && !a.cu.getTypes().isEmpty()) {
       return translateClassInternal(a.fixedSource);
     }
+
     return translateSnippetInternal(src);
   }
 
-  public String translateSnippet(String javaCode) {
+  public synchronized String translateSnippet(String javaCode) {
     return translateSnippetInternal(normalize(javaCode));
   }
 
-  public String translateClass(String javaCode) {
+  public synchronized String translateClass(String javaCode) {
     return translateClassInternal(normalize(javaCode));
   }
 
-  public String translate(String javaCode, String mode) {
+  public synchronized String translate(String javaCode, String mode) {
     String src = normalize(javaCode);
     String m = (mode == null ? "auto" : mode.trim().toLowerCase(Locale.ROOT));
     return switch (m) {
@@ -61,38 +73,20 @@ public class JavaToAbapTranslator {
     };
   }
 
-  // =========================================================
-  // Per-translation context (thread-safe)
-  // =========================================================
-  private static final class Ctx {
-    final Map<String, List<String>> enumConstantsByType = new LinkedHashMap<>();
-    final Map<String, List<String>> enumTypesByConstant = new HashMap<>();
-
-    // used only for certain renders (e.g. map j -> ( sy-index - 1 ))
-    final Map<String, String> nameSubst = new HashMap<>();
-
-    void resetSubst() { nameSubst.clear(); }
-  }
-
-  private enum OutputStyle {
-    SNIPPET_LIST,     // WRITE / list output
-    CLASSRUN_CONSOLE  // out->write(...)
-  }
-
-  // =========================================================
+  // ===========================
   // SNIPPET
-  // =========================================================
+  // ===========================
   private String translateSnippetInternal(String src) {
-    Ctx ctx = new Ctx();
-    IndentWriter out = new IndentWriter();
+    resetState();
+    StringBuilder out = new StringBuilder();
 
     Extracted ex = extractTopLevelTypeDeclsAnywhere(src);
 
     if ((ex.remainingCode == null || ex.remainingCode.isBlank())
         && ex.extractedTypes != null && !ex.extractedTypes.isBlank()) {
-      out.line(0, "\" Hinweis: „Snippet“ gewählt, aber dein Input enthält nur class/enum/record/interface.");
-      out.line(0, "\" Bitte „Class“ wählen oder nur Statements einfügen.");
-      return out.finish();
+      emit(out, 0, "\" Hinweis: „Snippet“ gewählt, aber dein Input enthält nur class/enum/record/interface.");
+      emit(out, 0, "\" Bitte „Class“ wählen oder nur Statements einfügen.");
+      return ensureTrailingNewline(out);
     }
 
     String wrapper =
@@ -105,168 +99,158 @@ public class JavaToAbapTranslator {
 
     try {
       CompilationUnit cu = StaticJavaParser.parse(balanceBraces(wrapper));
-      indexEnums(cu, ctx);
-      inferEnumsFromSwitches(cu, ctx);
 
-      emitEnumDeclarationsSnippet(out, ctx);
+      indexEnums(cu);
+      inferEnumsFromSwitches(cu);
+
+      emitEnumDeclarationsSnippet(out);
 
       MethodDeclaration m = cu.findFirst(MethodDeclaration.class, md -> md.getNameAsString().equals("__m"))
           .orElse(null);
 
       if (m == null || m.getBody().isEmpty()) {
-        out.line(0, "\" TODO: keine Statements gefunden");
-        return out.finish();
+        emit(out, 0, "\" TODO: keine Statements gefunden");
+        return ensureTrailingNewline(out);
       }
 
-      translateStatementsBlock(
-          m.getBody().get().getStatements(),
-          out,
-          0,
-          ctx,
-          OutputStyle.SNIPPET_LIST
-      );
+      for (Statement st : m.getBody().get().getStatements()) {
+        translateStatement(st, out, 0, OutputStyle.LIST_WRITE);
+      }
 
     } catch (Exception e) {
-      out.line(0, "Parse error (Java). Tipp: Snippet braucht gültige Statements.");
-      out.line(0, shortMessage(e));
+      out.append("Parse error (Java). Tipp: Snippet braucht gültige Statements.\n");
+      out.append(shortMessage(e)).append("\n");
     }
 
-    return out.finish();
+    return ensureTrailingNewline(out);
   }
 
-  // =========================================================
+  // ===========================
   // CLASS
-  // =========================================================
+  // ===========================
   private String translateClassInternal(String src) {
-    Ctx ctx = new Ctx();
-    IndentWriter out = new IndentWriter();
+    resetState();
+    StringBuilder out = new StringBuilder();
 
     ParseAttempt a = tryParseCompilationUnit(src);
     if (!a.ok || a.cu == null) {
-      out.line(0, "Parse error (Java). Tipp: Class erwartet eine Java-Datei mit class/interface/record/enum.");
-      if (a.errorMessage != null) out.line(0, a.errorMessage);
-      return out.finish();
+      out.append("Parse error (Java). Tipp: Class erwartet eine Java-Datei mit class/interface/record/enum.\n");
+      if (a.errorMessage != null) out.append(a.errorMessage).append("\n");
+      return ensureTrailingNewline(out);
     }
 
     CompilationUnit cu = a.cu;
 
     emitCompilationUnitHeaderComments(cu, out);
 
-    indexEnums(cu, ctx);
-    inferEnumsFromSwitches(cu, ctx);
+    indexEnums(cu);
+    inferEnumsFromSwitches(cu);
 
     Optional<ClassOrInterfaceDeclaration> clsOpt = cu.findFirst(ClassOrInterfaceDeclaration.class);
     Optional<RecordDeclaration> recOpt = cu.findFirst(RecordDeclaration.class);
     Optional<EnumDeclaration> enumOpt = cu.findFirst(EnumDeclaration.class);
 
     if (clsOpt.isEmpty() && recOpt.isEmpty() && enumOpt.isPresent()) {
-      emitEnumDeclarationsSnippet(out, ctx);
-      return out.finish();
+      emitEnumDeclarationsSnippet(out);
+      return ensureTrailingNewline(out);
     }
 
     if (recOpt.isPresent() && clsOpt.isEmpty()) {
-      translateRecordAsClass(recOpt.get(), out, ctx);
-      return out.finish();
+      return translateRecordAsClass(recOpt.get(), out);
     }
 
     if (clsOpt.isEmpty()) {
-      out.line(0, "Parse error (Java). Tipp: Keine class/interface/record/enum gefunden.");
-      return out.finish();
+      out.append("Parse error (Java). Tipp: Keine class/interface/record/enum gefunden.\n");
+      return ensureTrailingNewline(out);
     }
 
     ClassOrInterfaceDeclaration cls = clsOpt.get();
-    if (cls.isInterface()) {
-      translateInterface(cls, out, ctx);
-      return out.finish();
-    }
+    if (cls.isInterface()) return translateInterface(cls, out);
 
-    translateClass(cls, out, ctx);
-    return out.finish();
+    return translateClass(cls, out);
   }
 
-  private void translateInterface(ClassOrInterfaceDeclaration itf, IndentWriter out, Ctx ctx) {
+  private String translateInterface(ClassOrInterfaceDeclaration itf, StringBuilder out) {
     String abapName = "zif_" + toSnakeLower(itf.getNameAsString());
     emitLeadingComments(itf, out, 0);
 
-    out.line(0, "INTERFACE " + abapName + " PUBLIC.");
+    out.append("INTERFACE ").append(abapName).append(" PUBLIC.\n");
 
     for (MethodDeclaration md : itf.getMethods()) {
       emitLeadingComments(md, out, 2);
 
-      StringBuilder sig = new StringBuilder();
-      sig.append("  METHODS ").append(md.getNameAsString());
+      out.append("  METHODS ").append(md.getNameAsString());
 
       if (!md.getParameters().isEmpty()) {
-        sig.append(" IMPORTING");
+        out.append(" IMPORTING");
         for (Parameter p : md.getParameters()) {
-          sig.append(" ").append(p.getNameAsString())
-              .append(" TYPE ").append(mapTypeForAbap(p.getTypeAsString(), ctx));
+          out.append(" ").append(p.getNameAsString())
+              .append(" TYPE ").append(mapTypeForAbap(p.getTypeAsString()));
         }
       }
 
       if (!md.getType().isVoidType()) {
-        sig.append(" RETURNING VALUE(rv_result) TYPE ").append(mapTypeForAbap(md.getTypeAsString(), ctx));
+        out.append(" RETURNING VALUE(rv_result) TYPE ").append(mapTypeForAbap(md.getTypeAsString()));
       }
 
-      sig.append(".");
-      out.line(0, sig.toString());
+      out.append(".\n");
     }
 
-    out.line(0, "ENDINTERFACE.");
+    out.append("ENDINTERFACE.\n");
+    return ensureTrailingNewline(out);
   }
 
-  private void translateRecordAsClass(RecordDeclaration rec, IndentWriter out, Ctx ctx) {
+  private String translateRecordAsClass(RecordDeclaration rec, StringBuilder out) {
     String abapName = "zcl_" + toSnakeLower(rec.getNameAsString());
     emitLeadingComments(rec, out, 0);
 
-    out.line(0, "CLASS " + abapName + " DEFINITION PUBLIC FINAL CREATE PUBLIC.");
-    out.line(2, "PUBLIC SECTION.");
+    out.append("CLASS ").append(abapName).append(" DEFINITION PUBLIC FINAL CREATE PUBLIC.\n");
+    out.append("  PUBLIC SECTION.\n");
 
-    emitEnumDeclarationsInClassPublic(out, ctx, 4);
+    emitEnumDeclarationsInClassPublic(out);
 
-    out.line(4, "\" record mapped best-effort: components -> READ-ONLY attributes");
+    emit(out, 4, "\" record mapped best-effort: components -> READ-ONLY attributes");
     for (Parameter p : rec.getParameters()) {
-      out.line(4, "DATA " + p.getNameAsString() + " TYPE " + mapTypeForAbap(p.getTypeAsString(), ctx) + " READ-ONLY.");
+      emit(out, 4, "DATA " + p.getNameAsString() + " TYPE " + mapTypeForAbap(p.getTypeAsString()) + " READ-ONLY.");
     }
 
-    StringBuilder ctor = new StringBuilder("METHODS constructor");
+    out.append("    METHODS constructor");
     if (!rec.getParameters().isEmpty()) {
-      ctor.append(" IMPORTING");
+      out.append(" IMPORTING");
       for (Parameter p : rec.getParameters()) {
-        ctor.append(" ").append(p.getNameAsString()).append(" TYPE ").append(mapTypeForAbap(p.getTypeAsString(), ctx));
+        out.append(" ").append(p.getNameAsString()).append(" TYPE ").append(mapTypeForAbap(p.getTypeAsString()));
       }
     }
-    ctor.append(".");
-    out.line(4, ctor.toString());
+    out.append(".\n");
 
-    out.line(0, "ENDCLASS.");
-    out.blank();
+    out.append("ENDCLASS.\n\n");
 
-    out.line(0, "CLASS " + abapName + " IMPLEMENTATION.");
-    out.line(2, "METHOD constructor.");
+    out.append("CLASS ").append(abapName).append(" IMPLEMENTATION.\n");
+    out.append("  METHOD constructor.\n");
     for (Parameter p : rec.getParameters()) {
-      out.line(4, "me->" + p.getNameAsString() + " = " + p.getNameAsString() + ".");
+      emit(out, 4, "me->" + p.getNameAsString() + " = " + p.getNameAsString() + ".");
     }
-    out.line(2, "ENDMETHOD.");
-    out.line(0, "ENDCLASS.");
+    out.append("  ENDMETHOD.\n");
+    out.append("ENDCLASS.\n");
+
+    return ensureTrailingNewline(out);
   }
 
-  private void translateClass(ClassOrInterfaceDeclaration cls, IndentWriter out, Ctx ctx) {
+  private String translateClass(ClassOrInterfaceDeclaration cls, StringBuilder out) {
     String abapName = "zcl_" + toSnakeLower(cls.getNameAsString());
     emitLeadingComments(cls, out, 0);
 
-    MethodDeclaration main = findJavaMain(cls).orElse(null);
-    boolean hasMain = (main != null);
+    MethodDeclaration javaMain = findJavaMain(cls).orElse(null);
+    boolean hasMain = (javaMain != null);
 
-    out.line(0, "CLASS " + abapName + " DEFINITION PUBLIC FINAL CREATE PUBLIC.");
-    out.line(2, "PUBLIC SECTION.");
+    out.append("CLASS ").append(abapName).append(" DEFINITION PUBLIC FINAL CREATE PUBLIC.\n");
+    out.append("  PUBLIC SECTION.\n");
 
     if (hasMain) {
-      out.line(4, "INTERFACES if_oo_adt_classrun.");
-      out.blank();
+      out.append("    INTERFACES if_oo_adt_classrun.\n");
     }
 
-    emitEnumDeclarationsInClassPublic(out, ctx, 4);
+    emitEnumDeclarationsInClassPublic(out);
 
     // Fields
     for (FieldDeclaration fd : cls.getFields()) {
@@ -281,579 +265,460 @@ public class JavaToAbapTranslator {
             && isSimpleLiteral(v.getInitializer().get());
 
         if (constCandidate) {
-          out.line(4, "CONSTANTS " + name + " TYPE " + mapTypeForAbap(javaType, ctx)
-              + " VALUE " + expr(v.getInitializer().get(), ctx) + ".");
+          emit(out, 4, "CONSTANTS " + name + " TYPE " + mapTypeForAbap(javaType)
+              + " VALUE " + expr(v.getInitializer().get()) + ".");
           continue;
         }
 
         String kw = fd.isStatic() ? "CLASS-DATA" : "DATA";
-        out.line(4, kw + " " + name + " TYPE " + mapTypeForAbap(javaType, ctx) + ".");
+        emit(out, 4, kw + " " + name + " TYPE " + mapTypeForAbap(javaType) + ".");
       }
     }
 
-    // Constructor signature (first only)
+    // Constructor signature (only first)
     List<ConstructorDeclaration> ctors = cls.getConstructors();
     if (!ctors.isEmpty()) {
       ConstructorDeclaration cd = ctors.get(0);
-      StringBuilder sig = new StringBuilder("METHODS constructor");
+      out.append("    METHODS constructor");
       if (!cd.getParameters().isEmpty()) {
-        sig.append(" IMPORTING");
+        out.append(" IMPORTING");
         for (Parameter p : cd.getParameters()) {
-          sig.append(" ").append(p.getNameAsString()).append(" TYPE ").append(mapTypeForAbap(p.getTypeAsString(), ctx));
+          out.append(" ").append(p.getNameAsString()).append(" TYPE ").append(mapTypeForAbap(p.getTypeAsString()));
         }
       }
-      sig.append(".");
-      out.line(4, sig.toString());
+      out.append(".\n");
     }
 
-    // Methods signatures (skip Java main if we map it to IF_OO_ADT_CLASSRUN~MAIN)
+    // Methods signatures (skip Java main; we map it to IF_OO_ADT_CLASSRUN~MAIN)
     for (MethodDeclaration md : cls.getMethods()) {
-      if (hasMain && md == main) continue;
+      if (hasMain && md == javaMain) continue;
 
       emitLeadingComments(md, out, 4);
 
       String kw = md.isStatic() ? "CLASS-METHODS " : "METHODS ";
-      StringBuilder sig = new StringBuilder();
-      sig.append(kw).append(md.getNameAsString());
+      out.append("    ").append(kw).append(md.getNameAsString());
 
       if (!md.getParameters().isEmpty()) {
-        sig.append(" IMPORTING");
+        out.append(" IMPORTING");
         for (Parameter p : md.getParameters()) {
-          sig.append(" ").append(p.getNameAsString()).append(" TYPE ").append(mapTypeForAbap(p.getTypeAsString(), ctx));
+          out.append(" ").append(p.getNameAsString()).append(" TYPE ").append(mapTypeForAbap(p.getTypeAsString()));
         }
       }
 
       if (!md.getType().isVoidType()) {
-        sig.append(" RETURNING VALUE(rv_result) TYPE ").append(mapTypeForAbap(md.getTypeAsString(), ctx));
+        out.append(" RETURNING VALUE(rv_result) TYPE ").append(mapTypeForAbap(md.getTypeAsString()));
       }
 
-      sig.append(".");
-      out.line(4, sig.toString());
+      out.append(".\n");
     }
 
-    out.line(0, "ENDCLASS.");
-    out.blank();
+    out.append("ENDCLASS.\n\n");
 
     // IMPLEMENTATION
-    out.line(0, "CLASS " + abapName + " IMPLEMENTATION.");
+    out.append("CLASS ").append(abapName).append(" IMPLEMENTATION.\n");
 
     // Java main -> if_oo_adt_classrun~main
     if (hasMain) {
-      out.line(2, "METHOD if_oo_adt_classrun~main.");
-
-      if (main.getBody().isPresent()) {
-        translateStatementsBlock(
-            main.getBody().get().getStatements(),
-            out,
-            4,
-            ctx,
-            OutputStyle.CLASSRUN_CONSOLE
-        );
+      out.append("  METHOD if_oo_adt_classrun~main.\n");
+      if (javaMain.getBody().isPresent()) {
+        for (Statement st : javaMain.getBody().get().getStatements()) {
+          translateStatement(st, out, 4, OutputStyle.CLASSRUN_OUT);
+        }
       } else {
-        out.line(4, "\" TODO: main body missing");
+        emit(out, 4, "\" TODO: main body missing");
       }
-
-      out.line(2, "ENDMETHOD.");
-      out.blank();
+      out.append("  ENDMETHOD.\n\n");
     }
 
     // Constructor body
     if (!ctors.isEmpty()) {
       ConstructorDeclaration cd = ctors.get(0);
-      out.line(2, "METHOD constructor.");
-      translateStatementsBlock(cd.getBody().getStatements(), out, 4, ctx, OutputStyle.CLASSRUN_CONSOLE);
-      out.line(2, "ENDMETHOD.");
-      out.blank();
+      out.append("  METHOD constructor.\n");
+      for (Statement st : cd.getBody().getStatements()) {
+        translateStatement(st, out, 4, OutputStyle.CLASSRUN_OUT);
+      }
+      out.append("  ENDMETHOD.\n\n");
 
       if (ctors.size() > 1) {
-        out.line(2, "\" TODO: mehrere Java-Konstruktoren; ABAP hat kein Overload (nur der erste wurde übersetzt).");
-        out.blank();
+        emit(out, 2, "\" TODO: mehrere Java-Konstruktoren; ABAP hat kein Overload (nur der erste wurde übersetzt).");
+        out.append("\n");
       }
     }
 
     // Methods bodies
     for (MethodDeclaration md : cls.getMethods()) {
-      if (hasMain && md == main) continue;
+      if (hasMain && md == javaMain) continue;
 
-      out.line(2, "METHOD " + md.getNameAsString() + ".");
+      out.append("  METHOD ").append(md.getNameAsString()).append(".\n");
 
       if (md.getBody().isPresent()) {
-        translateStatementsBlock(md.getBody().get().getStatements(), out, 4, ctx, OutputStyle.CLASSRUN_CONSOLE);
+        for (Statement st : md.getBody().get().getStatements()) {
+          translateStatement(st, out, 4, OutputStyle.CLASSRUN_OUT);
+        }
       } else {
-        out.line(4, "\" TODO: method body missing");
+        emit(out, 4, "\" TODO: method body missing");
       }
 
-      out.line(2, "ENDMETHOD.");
-      out.blank();
+      out.append("  ENDMETHOD.\n\n");
     }
 
-    out.line(0, "ENDCLASS.");
+    out.append("ENDCLASS.\n");
+    return ensureTrailingNewline(out);
   }
 
-  // =========================================================
-  // Main feature: Statement-block translation + optimization
-  // =========================================================
-  private void translateStatementsBlock(List<Statement> stmts, IndentWriter out, int indent, Ctx ctx, OutputStyle style) {
-    if (stmts == null || stmts.isEmpty()) return;
+  private Optional<MethodDeclaration> findJavaMain(ClassOrInterfaceDeclaration cls) {
+    for (MethodDeclaration md : cls.getMethods()) {
+      if (!md.getNameAsString().equals("main")) continue;
+      if (!md.isStatic()) continue;
+      if (!md.getType().isVoidType()) continue;
+      if (md.getParameters().size() != 1) continue;
 
-    for (int i = 0; i < stmts.size(); ) {
-      int consumed = tryEmitCountingWhileAsDo(stmts, i, out, indent, ctx, style);
-      if (consumed > 0) {
-        i += consumed;
-        continue;
-      }
-
-      translateStatement(stmts.get(i), out, indent, ctx, style);
-      i++;
+      String t = md.getParameter(0).getTypeAsString().replace(" ", "");
+      if (t.equals("String[]") || t.equals("String...")) return Optional.of(md);
     }
+    return Optional.empty();
   }
 
-  /**
-   * Pattern:
-   *   int j = 0;
-   *   while (j < 10) {
-   *     System.out.println(j + 1 + ". Hello!");
-   *     j++;
-   *   }
-   *
-   * -> DO 10 TIMES. out->write( |{ sy-index }. Hello!| ). ENDDO.
-   *
-   * Returns how many original statements were consumed (0 = no match).
-   */
-  private int tryEmitCountingWhileAsDo(List<Statement> stmts, int idx, IndentWriter out, int indent, Ctx ctx, OutputStyle style) {
-    if (style != OutputStyle.CLASSRUN_CONSOLE) return 0; // keep list-output simple
-
-    if (idx + 1 >= stmts.size()) return 0;
-
-    CounterInit init = parseCounterInit(stmts.get(idx));
-    if (init == null) return 0;
-
-    Statement s1 = stmts.get(idx + 1);
-    if (!s1.isWhileStmt()) return 0;
-
-    WhileStmt ws = s1.asWhileStmt();
-
-    // counter must not be used later (otherwise we can't drop it)
-    if (isNameUsedInAny(stmts.subList(idx + 2, stmts.size()), init.varName)) return 0;
-
-    // condition: j < N  OR j <= N
-    LoopBound bound = parseWhileBound(ws.getCondition(), init.varName);
-    if (bound == null) return 0;
-
-    // body must contain: (optional) print + (required) increment and nothing else significant
-    BlockStmt body = ws.getBody().isBlockStmt()
-        ? ws.getBody().asBlockStmt()
-        : new BlockStmt(List.of(ws.getBody()));
-
-    List<Statement> bodyStmts = body.getStatements();
-    if (bodyStmts.isEmpty()) return 0;
-
-    // detect increment statement (prefer last)
-    int incPos = findIncrementStatement(bodyStmts, init.varName);
-    if (incPos < 0) return 0;
-
-    // Only allow: print statements (0..n but realistically 1) + the increment; no other complex stuff
-    List<Statement> others = new ArrayList<>();
-    for (int i = 0; i < bodyStmts.size(); i++) {
-      if (i == incPos) continue;
-      Statement st = bodyStmts.get(i);
-      if (isPurePrintln(st)) continue;
-      if (st.isEmptyStmt()) continue;
-      // allow comments-only blocks implicitly (comments are on nodes)
-      others.add(st);
-    }
-    if (!others.isEmpty()) return 0;
-
-    // compute times (only for constant bound)
-    Integer times = computeTimes(init.startValue, bound);
-    if (times == null || times <= 0) return 0;
-
-    // render the (first) println argument nicely with sy-index if possible
-    MethodCallExpr printCall = extractFirstPrintCall(bodyStmts);
-    String printArgAbap = "''";
-    if (printCall != null) {
-      Expression arg = printCall.getArguments().isEmpty() ? null : printCall.getArgument(0);
-      String pretty = tryRenderPrintWithSyIndex(arg, init.varName, init.startValue, ctx);
-      if (pretty != null) {
-        printArgAbap = pretty;
-      } else {
-        // fallback: render with substitution var -> ( start + sy-index - 1 )
-        ctx.resetSubst();
-        ctx.nameSubst.put(init.varName, loopVarAbap(init.startValue));
-        printArgAbap = renderString(arg, ctx, OutputStyle.CLASSRUN_CONSOLE);
-        ctx.resetSubst();
-      }
-    }
-
-    out.line(indent, "DO " + times + " TIMES.");
-    out.line(indent + 2, "out->write( " + printArgAbap + " ).");
-    out.line(indent, "ENDDO.");
-
-    return 2; // consumed init + while
-  }
-
-  private record CounterInit(String varName, int startValue) {}
-
-  private CounterInit parseCounterInit(Statement st) {
-    if (st == null) return null;
-
-    // int j = 0;
-    if (st.isExpressionStmt() && st.asExpressionStmt().getExpression().isVariableDeclarationExpr()) {
-      VariableDeclarationExpr vde = st.asExpressionStmt().getExpression().asVariableDeclarationExpr();
-      if (vde.getVariables().size() != 1) return null;
-      VariableDeclarator v = vde.getVariable(0);
-      if (!v.getInitializer().isPresent()) return null;
-      if (!isIntLike(v.getTypeAsString())) return null;
-      Expression init = v.getInitializer().get();
-      if (!init.isIntegerLiteralExpr()) return null;
-      return new CounterInit(v.getNameAsString(), Integer.parseInt(init.asIntegerLiteralExpr().getValue()));
-    }
-
-    // j = 0;
-    if (st.isExpressionStmt() && st.asExpressionStmt().getExpression().isAssignExpr()) {
-      AssignExpr ae = st.asExpressionStmt().getExpression().asAssignExpr();
-      if (ae.getOperator() != AssignExpr.Operator.ASSIGN) return null;
-      if (!ae.getTarget().isNameExpr()) return null;
-      if (!ae.getValue().isIntegerLiteralExpr()) return null;
-      return new CounterInit(ae.getTarget().asNameExpr().getNameAsString(),
-          Integer.parseInt(ae.getValue().asIntegerLiteralExpr().getValue()));
-    }
-
-    return null;
-  }
-
-  private boolean isIntLike(String t) {
-    String x = stripGeneric(t);
-    return x.equals("int") || x.equals("Integer") || x.equals("short") || x.equals("Short") || x.equals("byte") || x.equals("Byte");
-  }
-
-  private record LoopBound(BinaryExpr.Operator op, int rightLiteral) {}
-
-  private LoopBound parseWhileBound(Expression cond, String varName) {
-    if (cond == null) return null;
-    if (cond.isEnclosedExpr()) cond = cond.asEnclosedExpr().getInner();
-
-    if (!cond.isBinaryExpr()) return null;
-    BinaryExpr b = cond.asBinaryExpr();
-
-    if (!(b.getOperator() == BinaryExpr.Operator.LESS || b.getOperator() == BinaryExpr.Operator.LESS_EQUALS)) return null;
-
-    if (!b.getLeft().isNameExpr()) return null;
-    if (!b.getLeft().asNameExpr().getNameAsString().equals(varName)) return null;
-
-    Expression r = b.getRight();
-    if (r.isEnclosedExpr()) r = r.asEnclosedExpr().getInner();
-    if (!r.isIntegerLiteralExpr()) return null;
-
-    int lit = Integer.parseInt(r.asIntegerLiteralExpr().getValue());
-    return new LoopBound(b.getOperator(), lit);
-  }
-
-  private Integer computeTimes(int start, LoopBound bound) {
-    // Only handle ascending +1 loops (j++)
-    // while (j < N) => N - start
-    // while (j <= N) => N - start + 1
-    if (bound.op == BinaryExpr.Operator.LESS) {
-      return bound.rightLiteral - start;
-    } else if (bound.op == BinaryExpr.Operator.LESS_EQUALS) {
-      return bound.rightLiteral - start + 1;
-    }
-    return null;
-  }
-
-  private int findIncrementStatement(List<Statement> bodyStmts, String varName) {
-    // prefer last, but accept anywhere
-    for (int i = bodyStmts.size() - 1; i >= 0; i--) {
-      if (isIncrementOf(bodyStmts.get(i), varName)) return i;
-    }
-    return -1;
-  }
-
-  private boolean isIncrementOf(Statement st, String varName) {
-    if (st == null) return false;
-    if (!st.isExpressionStmt()) return false;
-    Expression e = st.asExpressionStmt().getExpression();
-
-    // j++; ++j;
-    if (e.isUnaryExpr()) {
-      UnaryExpr u = e.asUnaryExpr();
-      if (!u.getExpression().isNameExpr()) return false;
-      if (!u.getExpression().asNameExpr().getNameAsString().equals(varName)) return false;
-      return u.getOperator() == UnaryExpr.Operator.POSTFIX_INCREMENT || u.getOperator() == UnaryExpr.Operator.PREFIX_INCREMENT;
-    }
-
-    // j += 1;
-    if (e.isAssignExpr()) {
-      AssignExpr ae = e.asAssignExpr();
-      if (!ae.getTarget().isNameExpr()) return false;
-      if (!ae.getTarget().asNameExpr().getNameAsString().equals(varName)) return false;
-
-      if (ae.getOperator() == AssignExpr.Operator.PLUS) {
-        return ae.getValue().isIntegerLiteralExpr() && ae.getValue().asIntegerLiteralExpr().getValue().equals("1");
-      }
-
-      // j = j + 1;
-      if (ae.getOperator() == AssignExpr.Operator.ASSIGN && ae.getValue().isBinaryExpr()) {
-        BinaryExpr b = ae.getValue().asBinaryExpr();
-        if (b.getOperator() != BinaryExpr.Operator.PLUS) return false;
-        return isName(b.getLeft(), varName) && isIntLiteral(b.getRight(), 1)
-            || isName(b.getRight(), varName) && isIntLiteral(b.getLeft(), 1);
-      }
-    }
-
-    return false;
-  }
-
-  private boolean isPurePrintln(Statement st) {
-    if (st == null) return false;
-    if (!st.isExpressionStmt()) return false;
-    Expression e = st.asExpressionStmt().getExpression();
-    if (!e.isMethodCallExpr()) return false;
-    MethodCallExpr mc = e.asMethodCallExpr();
-    return isSystemOutPrintln(mc) || isSystemOutPrint(mc);
-  }
-
-  private MethodCallExpr extractFirstPrintCall(List<Statement> bodyStmts) {
-    for (Statement st : bodyStmts) {
-      if (!st.isExpressionStmt()) continue;
-      Expression e = st.asExpressionStmt().getExpression();
-      if (!e.isMethodCallExpr()) continue;
-      MethodCallExpr mc = e.asMethodCallExpr();
-      if (isSystemOutPrintln(mc) || isSystemOutPrint(mc)) return mc;
-    }
-    return null;
-  }
-
-  private boolean isName(Expression e, String name) {
-    return e != null && e.isNameExpr() && e.asNameExpr().getNameAsString().equals(name);
-  }
-
-  private boolean isIntLiteral(Expression e, int v) {
-    return e != null && e.isIntegerLiteralExpr() && Integer.parseInt(e.asIntegerLiteralExpr().getValue()) == v;
-  }
-
-  private boolean isNameUsedInAny(List<Statement> stmts, String varName) {
-    for (Statement s : stmts) {
-      if (s == null) continue;
-      if (s.findAll(NameExpr.class).stream().anyMatch(ne -> ne.getNameAsString().equals(varName))) return true;
-    }
-    return false;
-  }
-
-  private String loopVarAbap(int start) {
-    // value of j inside DO loop iteration k:
-    // j = start + (sy-index - 1)
-    if (start == 0) return "( sy-index - 1 )";
-    if (start == 1) return "sy-index";
-    return "( " + start + " + sy-index - 1 )";
-  }
-
-  private String tryRenderPrintWithSyIndex(Expression arg, String varName, int start, Ctx ctx) {
-    if (arg == null) return "''";
-
-    // Only “pretty” for the most common case start==0 and a concat that begins with (j+1)
-    if (start != 0) return null;
-
-    List<ConcatSeg> segs = flattenJavaConcat(arg);
-    if (segs == null || segs.isEmpty()) return null;
-
-    // first segment must be exactly (j + 1) or (1 + j)
-    ConcatSeg first = segs.get(0);
-    if (first.kind != ConcatSeg.Kind.EXPR) return null;
-    if (!isVarPlusOne(first.expr, varName)) return null;
-
-    // Build ABAP string template: |{ sy-index }...|
-    StringBuilder tpl = new StringBuilder();
-    tpl.append("|{ sy-index }");
-
-    for (int i = 1; i < segs.size(); i++) {
-      ConcatSeg s = segs.get(i);
-      if (s.kind == ConcatSeg.Kind.TEXT) {
-        tpl.append(escapeForAbapStringTemplate(s.text));
-      } else {
-        // embed expression with j mapped to ( sy-index - 1 )
-        ctx.resetSubst();
-        ctx.nameSubst.put(varName, "( sy-index - 1 )");
-        String e = expr(s.expr, ctx);
-        ctx.resetSubst();
-        tpl.append("{ ").append(e).append(" }");
-      }
-    }
-
-    tpl.append("|");
-    return tpl.toString();
-  }
-
-  private boolean isVarPlusOne(Expression e, String varName) {
-    if (e == null) return false;
-    if (e.isEnclosedExpr()) e = e.asEnclosedExpr().getInner();
-    if (!e.isBinaryExpr()) return false;
-    BinaryExpr b = e.asBinaryExpr();
-    if (b.getOperator() != BinaryExpr.Operator.PLUS) return false;
-
-    Expression l = b.getLeft();
-    Expression r = b.getRight();
-    if (l.isEnclosedExpr()) l = l.asEnclosedExpr().getInner();
-    if (r.isEnclosedExpr()) r = r.asEnclosedExpr().getInner();
-
-    return (isName(l, varName) && isIntLiteral(r, 1)) || (isName(r, varName) && isIntLiteral(l, 1));
-  }
-
-  private String escapeForAbapStringTemplate(String s) {
-    // ABAP string templates are delimited by | ... |
-    // escape literal | by doubling it: ||
-    if (s == null) return "";
-    return s.replace("|", "||");
-  }
-
-  private static final class ConcatSeg {
-    enum Kind { TEXT, EXPR }
-    final Kind kind;
-    final String text;
-    final Expression expr;
-
-    private ConcatSeg(Kind kind, String text, Expression expr) {
-      this.kind = kind;
-      this.text = text;
-      this.expr = expr;
-    }
-    static ConcatSeg text(String t) { return new ConcatSeg(Kind.TEXT, t, null); }
-    static ConcatSeg expr(Expression e) { return new ConcatSeg(Kind.EXPR, null, e); }
-  }
-
-  /**
-   * Flattens Java string concatenation chains: a + b + "x" + c ...
-   * Returns segments where string literals become TEXT, everything else becomes EXPR.
-   */
-  private List<ConcatSeg> flattenJavaConcat(Expression e) {
-    if (e == null) return List.of();
-
-    if (e.isEnclosedExpr()) return flattenJavaConcat(e.asEnclosedExpr().getInner());
-
-    if (e.isBinaryExpr() && e.asBinaryExpr().getOperator() == BinaryExpr.Operator.PLUS) {
-      BinaryExpr b = e.asBinaryExpr();
-      List<ConcatSeg> left = flattenJavaConcat(b.getLeft());
-      List<ConcatSeg> right = flattenJavaConcat(b.getRight());
-      List<ConcatSeg> out = new ArrayList<>(left.size() + right.size());
-      out.addAll(left);
-      out.addAll(right);
-      return out;
-    }
-
-    if (e.isStringLiteralExpr()) return List.of(ConcatSeg.text(e.asStringLiteralExpr().asString()));
-    if (e.isCharLiteralExpr()) return List.of(ConcatSeg.text(String.valueOf(e.asCharLiteralExpr().asChar())));
-
-    return List.of(ConcatSeg.expr(e));
-  }
-
-  // =========================================================
-  // Statements
-  // =========================================================
-  private void translateStatement(Statement st, IndentWriter out, int indent, Ctx ctx, OutputStyle style) {
+  // ===========================
+  // Statements (core)
+  // ===========================
+  private void translateStatement(Statement st, StringBuilder out, int indent, OutputStyle style) {
     if (st == null) return;
 
     emitLeadingComments(st, out, indent);
 
     if (st.isBlockStmt()) {
-      translateStatementsBlock(st.asBlockStmt().getStatements(), out, indent, ctx, style);
+      for (Statement inner : st.asBlockStmt().getStatements()) translateStatement(inner, out, indent, style);
       return;
     }
     if (st.isEmptyStmt()) return;
 
     if (st.isExpressionStmt()) {
-      translateExpressionStmt(st.asExpressionStmt(), out, indent, ctx, style);
+      translateExpressionStmt(st.asExpressionStmt(), out, indent, style);
       return;
     }
 
     if (st.isIfStmt()) {
       IfStmt is = st.asIfStmt();
-      ExprRes cond = tryExpr(is.getCondition(), ctx);
-      if (!cond.ok) { emitTodoJava(out, indent, st.toString(), cond.reason); return; }
-
-      out.line(indent, "IF " + cond.abap + ".");
-      translateStatement(is.getThenStmt(), out, indent + 2, ctx, style);
-      if (is.getElseStmt().isPresent()) {
-        out.line(indent, "ELSE.");
-        translateStatement(is.getElseStmt().get(), out, indent + 2, ctx, style);
+      ExprRes cond = tryExpr(is.getCondition());
+      if (!cond.ok) {
+        emitTodoJava(out, indent, st.toString(), cond.reason);
+        return;
       }
-      out.line(indent, "ENDIF.");
+      emit(out, indent, "IF " + cond.abap + ".");
+      translateStatement(is.getThenStmt(), out, indent + 2, style);
+      if (is.getElseStmt().isPresent()) {
+        emit(out, indent, "ELSE.");
+        translateStatement(is.getElseStmt().get(), out, indent + 2, style);
+      }
+      emit(out, indent, "ENDIF.");
       return;
     }
 
     if (st.isSwitchStmt()) {
-      translateSwitchStmt(st.asSwitchStmt(), out, indent, ctx, style);
+      translateSwitchStmt(st.asSwitchStmt(), out, indent, style);
       return;
     }
 
     if (st.isTryStmt()) {
-      translateTryStmt(st.asTryStmt(), out, indent, ctx, style);
+      translateTryStmt(st.asTryStmt(), out, indent, style);
+      return;
+    }
+
+    // --------- NEW: classic for-loop support ----------
+    if (st.isForStmt()) {
+      translateForStmt(st.asForStmt(), out, indent, style);
       return;
     }
 
     if (st.isWhileStmt()) {
       WhileStmt ws = st.asWhileStmt();
-      ExprRes cond = tryExpr(ws.getCondition(), ctx);
-      if (!cond.ok) { emitTodoJava(out, indent, st.toString(), cond.reason); return; }
-
-      out.line(indent, "WHILE " + cond.abap + ".");
-      translateStatement(ws.getBody(), out, indent + 2, ctx, style);
-      out.line(indent, "ENDWHILE.");
+      ExprRes cond = tryExpr(ws.getCondition());
+      if (!cond.ok) {
+        emitTodoJava(out, indent, st.toString(), cond.reason);
+        return;
+      }
+      emit(out, indent, "WHILE " + cond.abap + ".");
+      translateStatement(ws.getBody(), out, indent + 2, style);
+      emit(out, indent, "ENDWHILE.");
       return;
     }
 
     if (st.isForEachStmt()) {
       ForEachStmt fes = st.asForEachStmt();
       String var = fes.getVariable().getVariable(0).getNameAsString();
-      ExprRes it = tryExpr(fes.getIterable(), ctx);
-      if (!it.ok) { emitTodoJava(out, indent, st.toString(), it.reason); return; }
-
-      out.line(indent, "LOOP AT " + it.abap + " INTO " + var + ".");
-      translateStatement(fes.getBody(), out, indent + 2, ctx, style);
-      out.line(indent, "ENDLOOP.");
+      ExprRes it = tryExpr(fes.getIterable());
+      if (!it.ok) {
+        emitTodoJava(out, indent, st.toString(), it.reason);
+        return;
+      }
+      emit(out, indent, "LOOP AT " + it.abap + " INTO " + var + ".");
+      translateStatement(fes.getBody(), out, indent + 2, style);
+      emit(out, indent, "ENDLOOP.");
       return;
     }
 
     if (st.isReturnStmt()) {
       ReturnStmt rs = st.asReturnStmt();
       if (rs.getExpression().isPresent()) {
-        ExprRes er = tryExpr(rs.getExpression().get(), ctx);
-        if (!er.ok) { emitTodoJava(out, indent, st.toString(), er.reason); return; }
-        out.line(indent, "rv_result = " + er.abap + ".");
+        ExprRes er = tryExpr(rs.getExpression().get());
+        if (!er.ok) {
+          emitTodoJava(out, indent, st.toString(), er.reason);
+          return;
+        }
+        emit(out, indent, "rv_result = " + er.abap + ".");
       }
-      out.line(indent, "RETURN.");
+      emit(out, indent, "RETURN.");
       return;
     }
 
-    if (st.isBreakStmt()) { out.line(indent, "EXIT."); return; }
-    if (st.isContinueStmt()) { out.line(indent, "CONTINUE."); return; }
+    if (st.isBreakStmt()) {
+      emit(out, indent, "EXIT.");
+      return;
+    }
+
+    if (st.isContinueStmt()) {
+      emit(out, indent, "CONTINUE.");
+      return;
+    }
 
     emitTodoJava(out, indent, st.toString(), "Statement nicht unterstützt / nicht eindeutig in ABAP");
   }
 
-  private void translateTryStmt(TryStmt ts, IndentWriter out, int indent, Ctx ctx, OutputStyle style) {
-    out.line(indent, "TRY.");
-    translateStatementsBlock(ts.getTryBlock().getStatements(), out, indent + 2, ctx, style);
+  // ===========================
+  // ForStmt (classic for-loop) -> LOOP AT (if safe) else WHILE fallback
+  // ===========================
+  private void translateForStmt(ForStmt fs, StringBuilder out, int indent, OutputStyle style) {
+    emitLeadingComments(fs, out, indent);
+
+    ClassicForHeader h = parseClassicForHeader(fs);
+    if (h == null || fs.getCompare().isEmpty()) {
+      emitTodoJava(out, indent, fs.toString(), "classic for nicht unterstützt");
+      return;
+    }
+
+    if (tryTranslateForAsLoopAt(fs, h, out, indent, style)) return;
+
+    // fallback: init; WHILE compare. body. update. ENDWHILE.
+    for (Expression init : fs.getInitialization()) {
+      emitForInitExpr(init, out, indent, style);
+    }
+
+    ExprRes cond = tryExpr(fs.getCompare().get());
+    if (!cond.ok) {
+      emitTodoJava(out, indent, fs.toString(), cond.reason);
+      return;
+    }
+
+    emit(out, indent, "WHILE " + cond.abap + ".");
+    translateStatement(fs.getBody(), out, indent + 2, style);
+
+    for (Expression upd : fs.getUpdate()) {
+      emitForUpdateExpr(upd, out, indent + 2, style);
+    }
+
+    emit(out, indent, "ENDWHILE.");
+  }
+
+  private boolean tryTranslateForAsLoopAt(ForStmt fs, ClassicForHeader h, StringBuilder out, int indent, OutputStyle style) {
+    // pattern: i=0; i<names.length; i++
+    if (h.startValue != 0) return false;
+    if (h.op != BinaryExpr.Operator.LESS) return false;
+    if (h.update == null || !isIncrementExpr(h.update, h.idxVar)) return false;
+
+    if (!(h.right instanceof FieldAccessExpr fa)) return false;
+    if (!fa.getNameAsString().equals("length")) return false;
+    if (!fa.getScope().isNameExpr()) return false;
+
+    String arrName = fa.getScope().asNameExpr().getNameAsString();
+
+    if (!indexOnlyUsedForArrayAccess(fs.getBody(), h.idxVar, arrName)) return false;
+
+    String loopVar = guessLoopVarName(arrName);
+
+    emit(out, indent, "LOOP AT " + arrName + " INTO DATA(" + loopVar + ").");
+
+    String key = arrName + "#" + h.idxVar;
+    arrayIndexSubst.put(key, loopVar);
+    try {
+      translateStatement(fs.getBody(), out, indent + 2, style);
+    } finally {
+      arrayIndexSubst.remove(key);
+    }
+
+    emit(out, indent, "ENDLOOP.");
+    return true;
+  }
+
+  private void emitForInitExpr(Expression init, StringBuilder out, int indent, OutputStyle style) {
+    if (init == null) return;
+
+    if (init.isVariableDeclarationExpr()) {
+      VariableDeclarationExpr vde = init.asVariableDeclarationExpr();
+      for (VariableDeclarator v : vde.getVariables()) translateVarDeclarator(v, out, indent, style);
+      return;
+    }
+
+    if (init.isAssignExpr()) {
+      translateAssignExpr(init.asAssignExpr(), out, indent, style);
+      return;
+    }
+
+    emitTodoJava(out, indent, init.toString() + ";", "for-init expression nicht unterstützt");
+  }
+
+  private void emitForUpdateExpr(Expression upd, StringBuilder out, int indent, OutputStyle style) {
+    if (upd == null) return;
+
+    if (upd.isUnaryExpr()) {
+      UnaryExpr u = upd.asUnaryExpr();
+      if (u.getExpression().isNameExpr()) {
+        String v = u.getExpression().asNameExpr().getNameAsString();
+        if (u.getOperator() == UnaryExpr.Operator.POSTFIX_INCREMENT || u.getOperator() == UnaryExpr.Operator.PREFIX_INCREMENT) {
+          emit(out, indent, v + " = " + v + " + 1.");
+          return;
+        }
+        if (u.getOperator() == UnaryExpr.Operator.POSTFIX_DECREMENT || u.getOperator() == UnaryExpr.Operator.PREFIX_DECREMENT) {
+          emit(out, indent, v + " = " + v + " - 1.");
+          return;
+        }
+      }
+      emitTodoJava(out, indent, upd.toString() + ";", "unary update nicht unterstützt");
+      return;
+    }
+
+    if (upd.isAssignExpr()) {
+      translateAssignExpr(upd.asAssignExpr(), out, indent, style);
+      return;
+    }
+
+    emitTodoJava(out, indent, upd.toString() + ";", "for-update expression nicht unterstützt");
+  }
+
+  private boolean isIncrementExpr(Expression e, String var) {
+    if (e == null) return false;
+
+    if (e.isUnaryExpr()) {
+      UnaryExpr u = e.asUnaryExpr();
+      if (!u.getExpression().isNameExpr()) return false;
+      if (!u.getExpression().asNameExpr().getNameAsString().equals(var)) return false;
+      return u.getOperator() == UnaryExpr.Operator.POSTFIX_INCREMENT || u.getOperator() == UnaryExpr.Operator.PREFIX_INCREMENT;
+    }
+
+    if (e.isAssignExpr()) {
+      AssignExpr ae = e.asAssignExpr();
+      if (!ae.getTarget().isNameExpr()) return false;
+      if (!ae.getTarget().asNameExpr().getNameAsString().equals(var)) return false;
+
+      return ae.getOperator() == AssignExpr.Operator.PLUS
+          && ae.getValue().isIntegerLiteralExpr()
+          && ae.getValue().asIntegerLiteralExpr().getValue().equals("1");
+    }
+
+    return false;
+  }
+
+  private boolean indexOnlyUsedForArrayAccess(Statement body, String idxVar, String arrName) {
+    if (body == null) return true;
+
+    List<NameExpr> uses = body.findAll(NameExpr.class).stream()
+        .filter(ne -> ne.getNameAsString().equals(idxVar))
+        .toList();
+
+    for (NameExpr ne : uses) {
+      Optional<ArrayAccessExpr> aaeOpt = ne.findAncestor(ArrayAccessExpr.class);
+      if (aaeOpt.isEmpty()) return false;
+      ArrayAccessExpr aae = aaeOpt.get();
+
+      if (!aae.getName().isNameExpr()) return false;
+      if (!aae.getName().asNameExpr().getNameAsString().equals(arrName)) return false;
+
+      if (!aae.getIndex().isNameExpr()) return false;
+      if (!aae.getIndex().asNameExpr().getNameAsString().equals(idxVar)) return false;
+    }
+
+    return true;
+  }
+
+  private String guessLoopVarName(String arrName) {
+    if (arrName == null || arrName.isBlank()) return "ls_item";
+    if (arrName.endsWith("s") && arrName.length() > 1) return arrName.substring(0, arrName.length() - 1);
+    return "ls_" + arrName;
+  }
+
+  private record ClassicForHeader(String idxVar, int startValue, BinaryExpr.Operator op, Expression right, Expression update) {}
+
+  private ClassicForHeader parseClassicForHeader(ForStmt fs) {
+    if (fs == null) return null;
+    if (fs.getInitialization().size() != 1) return null;
+    if (fs.getCompare().isEmpty()) return null;
+    if (fs.getUpdate().size() != 1) return null;
+
+    Expression init = fs.getInitialization().get(0);
+    String idxVar;
+    int start;
+
+    if (init.isVariableDeclarationExpr()) {
+      VariableDeclarationExpr vde = init.asVariableDeclarationExpr();
+      if (vde.getVariables().size() != 1) return null;
+      VariableDeclarator v = vde.getVariable(0);
+      if (!v.getInitializer().isPresent()) return null;
+      if (!v.getInitializer().get().isIntegerLiteralExpr()) return null;
+      idxVar = v.getNameAsString();
+      start = Integer.parseInt(v.getInitializer().get().asIntegerLiteralExpr().getValue());
+    } else if (init.isAssignExpr()) {
+      AssignExpr ae = init.asAssignExpr();
+      if (ae.getOperator() != AssignExpr.Operator.ASSIGN) return null;
+      if (!ae.getTarget().isNameExpr()) return null;
+      if (!ae.getValue().isIntegerLiteralExpr()) return null;
+      idxVar = ae.getTarget().asNameExpr().getNameAsString();
+      start = Integer.parseInt(ae.getValue().asIntegerLiteralExpr().getValue());
+    } else {
+      return null;
+    }
+
+    Expression cmp = fs.getCompare().get();
+    if (cmp.isEnclosedExpr()) cmp = cmp.asEnclosedExpr().getInner();
+    if (!cmp.isBinaryExpr()) return null;
+
+    BinaryExpr b = cmp.asBinaryExpr();
+    if (b.getOperator() != BinaryExpr.Operator.LESS && b.getOperator() != BinaryExpr.Operator.LESS_EQUALS) return null;
+    if (!b.getLeft().isNameExpr()) return null;
+    if (!b.getLeft().asNameExpr().getNameAsString().equals(idxVar)) return null;
+
+    return new ClassicForHeader(idxVar, start, b.getOperator(), b.getRight(), fs.getUpdate().get(0));
+  }
+
+  // ===========================
+  // Try / Switch
+  // ===========================
+  private void translateTryStmt(TryStmt ts, StringBuilder out, int indent, OutputStyle style) {
+    emit(out, indent, "TRY.");
+    for (Statement st : ts.getTryBlock().getStatements()) translateStatement(st, out, indent + 2, style);
 
     for (CatchClause cc : ts.getCatchClauses()) {
       String var = cc.getParameter().getNameAsString();
-      out.line(indent, "CATCH cx_root INTO DATA(" + var + ").");
-      out.line(indent + 2, "\" TODO: Java exception type nicht gemappt: " + cc.getParameter().getTypeAsString());
-      translateStatementsBlock(cc.getBody().getStatements(), out, indent + 2, ctx, style);
+      emit(out, indent, "CATCH cx_root INTO DATA(" + var + ").");
+      emit(out, indent + 2, "\" TODO: Java exception type nicht gemappt: " + cc.getParameter().getTypeAsString());
+      for (Statement st : cc.getBody().getStatements()) translateStatement(st, out, indent + 2, style);
     }
 
     if (ts.getFinallyBlock().isPresent()) {
-      out.line(indent, "FINALLY.");
-      translateStatementsBlock(ts.getFinallyBlock().get().getStatements(), out, indent + 2, ctx, style);
+      emit(out, indent, "FINALLY.");
+      for (Statement st : ts.getFinallyBlock().get().getStatements()) translateStatement(st, out, indent + 2, style);
     }
 
-    out.line(indent, "ENDTRY.");
+    emit(out, indent, "ENDTRY.");
   }
 
-  private void translateSwitchStmt(SwitchStmt ss, IndentWriter out, int indent, Ctx ctx, OutputStyle style) {
-    ExprRes selector = tryExpr(ss.getSelector(), ctx);
-    if (!selector.ok) { emitTodoJava(out, indent, ss.toString(), selector.reason); return; }
+  private void translateSwitchStmt(SwitchStmt ss, StringBuilder out, int indent, OutputStyle style) {
+    ExprRes selector = tryExpr(ss.getSelector());
+    if (!selector.ok) {
+      emitTodoJava(out, indent, ss.toString(), selector.reason);
+      return;
+    }
 
-    out.line(indent, "CASE " + selector.abap + ".");
+    emit(out, indent, "CASE " + selector.abap + ".");
 
     List<SwitchEntry> entries = ss.getEntries();
     int i = 0;
@@ -862,7 +727,7 @@ public class JavaToAbapTranslator {
 
       boolean isDefault = entry.getLabels().isEmpty();
       List<String> labels = new ArrayList<>();
-      if (!isDefault) labels.addAll(entry.getLabels().stream().map(e -> switchLabelExpr(e, ctx)).toList());
+      if (!isDefault) labels.addAll(entry.getLabels().stream().map(this::switchLabelExpr).toList());
 
       List<Statement> stmts = new ArrayList<>(entry.getStatements());
       int j = i;
@@ -871,7 +736,7 @@ public class JavaToAbapTranslator {
         if (next.getLabels().isEmpty()) {
           isDefault = true;
         } else {
-          labels.addAll(next.getLabels().stream().map(e -> switchLabelExpr(e, ctx)).toList());
+          labels.addAll(next.getLabels().stream().map(this::switchLabelExpr).toList());
         }
         stmts = new ArrayList<>(next.getStatements());
         j++;
@@ -879,86 +744,79 @@ public class JavaToAbapTranslator {
       }
 
       if (isDefault || labels.isEmpty()) {
-        out.line(indent, "  WHEN OTHERS.");
+        emit(out, indent, "  WHEN OTHERS.");
       } else {
-        out.line(indent, "  WHEN " + String.join(" OR ", labels) + ".");
+        emit(out, indent, "  WHEN " + String.join(" OR ", labels) + ".");
       }
 
       for (Statement st : stmts) {
         if (st.isBreakStmt()) continue;
-        translateStatement(st, out, indent + 4, ctx, style);
+        translateStatement(st, out, indent + 4, style);
       }
 
       i = j + 1;
     }
 
-    out.line(indent, "ENDCASE.");
+    emit(out, indent, "ENDCASE.");
   }
 
-  private String switchLabelExpr(Expression e, Ctx ctx) {
+  private String switchLabelExpr(Expression e) {
     if (e == null) return "''";
 
     if (e.isNameExpr()) {
       String n = e.asNameExpr().getNameAsString();
-      return resolveEnumConstantUnqualified(n, ctx).orElse(n);
+      return resolveEnumConstantUnqualified(n).orElse(n);
     }
 
     if (e.isFieldAccessExpr()) {
       FieldAccessExpr fa = e.asFieldAccessExpr();
       if (fa.getScope().isNameExpr()) {
-        return resolveEnumConstantQualified(
-            fa.getScope().asNameExpr().getNameAsString(),
-            fa.getNameAsString(),
-            ctx
-        ).orElse(accessExpr(fa, ctx));
+        return resolveEnumConstantQualified(fa.getScope().asNameExpr().getNameAsString(), fa.getNameAsString())
+            .orElse(accessExpr(fa));
       }
-      return accessExpr(fa, ctx);
+      return accessExpr(fa);
     }
 
-    ExprRes er = tryExpr(e, ctx);
+    ExprRes er = tryExpr(e);
     return er.ok ? er.abap : "''";
   }
 
-  // =========================================================
+  // ===========================
   // Expression statements
-  // =========================================================
-  private void translateExpressionStmt(ExpressionStmt es, IndentWriter out, int indent, Ctx ctx, OutputStyle style) {
+  // ===========================
+  private void translateExpressionStmt(ExpressionStmt es, StringBuilder out, int indent, OutputStyle style) {
     Expression e = es.getExpression();
     emitLeadingComments(e, out, indent);
 
-    // Variable declarations
     if (e.isVariableDeclarationExpr()) {
       VariableDeclarationExpr vde = e.asVariableDeclarationExpr();
       for (VariableDeclarator v : vde.getVariables()) {
-        translateVarDeclarator(v, out, indent, ctx);
+        translateVarDeclarator(v, out, indent, style);
       }
       return;
     }
 
-    // Assignments
     if (e.isAssignExpr()) {
-      translateAssignExpr(e.asAssignExpr(), out, indent, ctx);
+      translateAssignExpr(e.asAssignExpr(), out, indent, style);
       return;
     }
 
-    // Method call as statement
     if (e.isMethodCallExpr()) {
       MethodCallExpr mc = e.asMethodCallExpr();
 
-      // System.out.println / print
       if (isSystemOutPrintln(mc) || isSystemOutPrint(mc)) {
-        Expression arg0 = mc.getArguments().isEmpty() ? null : mc.getArgument(0);
-        if (style == OutputStyle.CLASSRUN_CONSOLE) {
-          out.line(indent, "out->write( " + renderString(arg0, ctx, style) + " ).");
+        Expression arg0 = !mc.getArguments().isEmpty() ? mc.getArgument(0) : null;
+        String rendered = renderPrintArg(arg0); // handles "Hello," + x => |Hello,{ x }|
+        if (style == OutputStyle.CLASSRUN_OUT) {
+          emit(out, indent, "out->write( " + rendered + " ).");
         } else {
-          out.line(indent, "WRITE: / " + expr(arg0, ctx) + ".");
+          emit(out, indent, "WRITE: / " + rendered + ".");
         }
         return;
       }
 
-      // no-arg calls -> translate as instance/class call
       if (mc.getArguments().isEmpty()) {
-        out.line(indent, abapCallNoArgs(mc, ctx));
+        emit(out, indent, abapCallNoArgs(mc) );
         return;
       }
 
@@ -966,7 +824,6 @@ public class JavaToAbapTranslator {
       return;
     }
 
-    // new as standalone statement -> TODO
     if (e.isObjectCreationExpr()) {
       emitTodoJava(out, indent, es.toString(), "'new' als Statement ohne Zuweisung");
       return;
@@ -975,30 +832,63 @@ public class JavaToAbapTranslator {
     emitTodoJava(out, indent, es.toString(), "Expression nicht unterstützt / nicht eindeutig");
   }
 
-  private void translateVarDeclarator(VariableDeclarator v, IndentWriter out, int indent, Ctx ctx) {
+  private String renderPrintArg(Expression e) {
+    if (e == null) return "''";
+    // if expr already becomes a string template, keep it; else wrap to template to avoid type quirks
+    String x = expr(e);
+    if (x.startsWith("|") && x.endsWith("|")) return x;
+    if (e.isStringLiteralExpr() || e.isCharLiteralExpr()) return x;
+    return "|{ " + x + " }|";
+  }
+
+  private void translateVarDeclarator(VariableDeclarator v, StringBuilder out, int indent, OutputStyle style) {
     String name = v.getNameAsString();
     String javaType = v.getTypeAsString();
 
+    // ---- NEW: Java array initializer -> ABAP VALUE #( ... )
+    if (v.getInitializer().isPresent()) {
+      Expression init = v.getInitializer().get();
+
+      ArrayInitializerExpr aie = null;
+      if (init.isArrayInitializerExpr()) {
+        aie = init.asArrayInitializerExpr();
+      } else if (init.isArrayCreationExpr() && init.asArrayCreationExpr().getInitializer().isPresent()) {
+        aie = init.asArrayCreationExpr().getInitializer().get();
+      }
+
+      if (aie != null) {
+        emit(out, indent, "DATA " + name + " TYPE " + mapTypeForAbap(javaType) + ".");
+        emit(out, indent, name + " = " + abapValueForArrayInitializer(aie) + ".");
+        return;
+      }
+    }
+
     if (v.getInitializer().isPresent() && v.getInitializer().get().isObjectCreationExpr()) {
       ObjectCreationExpr oce = v.getInitializer().get().asObjectCreationExpr();
-      emitNewVar(name, javaType, oce, out, indent, ctx);
+      emitNewVar(name, javaType, oce, out, indent);
       return;
     }
 
-    out.line(indent, "DATA " + name + " TYPE " + mapTypeForAbap(javaType, ctx) + ".");
+    emit(out, indent, "DATA " + name + " TYPE " + mapTypeForAbap(javaType) + ".");
 
     if (v.getInitializer().isPresent()) {
-      ExprRes er = tryExpr(v.getInitializer().get(), ctx);
-      if (er.ok) out.line(indent, name + " = " + er.abap + ".");
+      Expression init = v.getInitializer().get();
+      ExprRes er = tryExpr(init);
+      if (er.ok) emit(out, indent, name + " = " + er.abap + ".");
       else emitTodoJava(out, indent, v.toString() + ";", er.reason);
     }
   }
 
-  private void translateAssignExpr(AssignExpr ae, IndentWriter out, int indent, Ctx ctx) {
+  private String abapValueForArrayInitializer(ArrayInitializerExpr aie) {
+    List<String> rows = new ArrayList<>();
+    for (Expression e : aie.getValues()) rows.add("( " + expr(e) + " )");
+    return "VALUE #( " + String.join(" ", rows) + " )";
+  }
+
+  private void translateAssignExpr(AssignExpr ae, StringBuilder out, int indent, OutputStyle style) {
     Expression targetExpr = ae.getTarget();
     Expression valueExpr = ae.getValue();
 
-    // i = i++; etc.
     if (ae.getOperator() == AssignExpr.Operator.ASSIGN && valueExpr.isUnaryExpr()) {
       UnaryExpr u = valueExpr.asUnaryExpr();
       UnaryExpr.Operator op = u.getOperator();
@@ -1015,48 +905,53 @@ public class JavaToAbapTranslator {
               op == UnaryExpr.Operator.POSTFIX_DECREMENT ||
               op == UnaryExpr.Operator.PREFIX_DECREMENT)) {
 
-        String t = expr(targetExpr, ctx);
-        out.line(indent, "\" TODO: Java \"" + ae + "\" ist trickreich; Effekt: Wert bleibt gleich.");
-        out.line(indent, t + " = " + t + ".");
+        String t = expr(targetExpr);
+        emit(out, indent, "\" TODO: Java \"" + ae + "\" ist trickreich; Effekt: Wert bleibt gleich.");
+        emit(out, indent, t + " = " + t + ".");
         return;
       }
     }
 
-    // new assignment
     if (ae.getOperator() == AssignExpr.Operator.ASSIGN && valueExpr.isObjectCreationExpr()) {
-      emitNewAssign(expr(targetExpr, ctx), valueExpr.asObjectCreationExpr(), out, indent, ctx);
+      emitNewAssign(expr(targetExpr), valueExpr.asObjectCreationExpr(), out, indent);
       return;
     }
 
-    String target = expr(targetExpr, ctx);
+    String target = expr(targetExpr);
 
     if (ae.getOperator() != AssignExpr.Operator.ASSIGN) {
-      ExprRes rhs = tryExpr(valueExpr, ctx);
-      if (!rhs.ok) { emitTodoJava(out, indent, ae + ";", rhs.reason); return; }
+      ExprRes rhs = tryExpr(valueExpr);
+      if (!rhs.ok) {
+        emitTodoJava(out, indent, ae + ";", rhs.reason);
+        return;
+      }
 
       switch (ae.getOperator()) {
-        case PLUS -> out.line(indent, target + " = " + target + " + " + rhs.abap + ".");
-        case MINUS -> out.line(indent, target + " = " + target + " - " + rhs.abap + ".");
-        case MULTIPLY -> out.line(indent, target + " = " + target + " * " + rhs.abap + ".");
-        case DIVIDE -> out.line(indent, target + " = " + target + " / " + rhs.abap + ".");
+        case PLUS -> emit(out, indent, target + " = " + target + " + " + rhs.abap + ".");
+        case MINUS -> emit(out, indent, target + " = " + target + " - " + rhs.abap + ".");
+        case MULTIPLY -> emit(out, indent, target + " = " + target + " * " + rhs.abap + ".");
+        case DIVIDE -> emit(out, indent, target + " = " + target + " / " + rhs.abap + ".");
         default -> emitTodoJava(out, indent, ae + ";", "compound assignment nicht gemappt: " + ae.getOperator());
       }
       return;
     }
 
-    ExprRes rhs = tryExpr(valueExpr, ctx);
-    if (!rhs.ok) { emitTodoJava(out, indent, ae + ";", rhs.reason); return; }
-    out.line(indent, target + " = " + rhs.abap + ".");
+    ExprRes rhs = tryExpr(valueExpr);
+    if (!rhs.ok) {
+      emitTodoJava(out, indent, ae + ";", rhs.reason);
+      return;
+    }
+    emit(out, indent, target + " = " + rhs.abap + ".");
   }
 
-  // =========================================================
-  // Expression translation
-  // =========================================================
+  // ===========================
+  // Expression translation (safe)
+  // ===========================
   private record ExprRes(boolean ok, String abap, String reason) {}
 
-  private ExprRes tryExpr(Expression e, Ctx ctx) {
+  private ExprRes tryExpr(Expression e) {
     try {
-      return new ExprRes(true, expr(e, ctx), null);
+      return new ExprRes(true, expr(e), null);
     } catch (UnsupportedExpression ex) {
       return new ExprRes(false, "''", ex.getMessage());
     } catch (Exception ex) {
@@ -1068,40 +963,8 @@ public class JavaToAbapTranslator {
     UnsupportedExpression(String msg) { super(msg); }
   }
 
-  private String renderString(Expression e, Ctx ctx, OutputStyle style) {
+  private String expr(Expression e) {
     if (e == null) return "''";
-
-    // For concat chains we produce ABAP string templates |...|
-    List<ConcatSeg> segs = flattenJavaConcat(e);
-    boolean hasText = segs.stream().anyMatch(s -> s.kind == ConcatSeg.Kind.TEXT);
-    boolean hasMany = segs.size() > 1;
-
-    if (hasText || hasMany) {
-      StringBuilder tpl = new StringBuilder();
-      tpl.append("|");
-      for (ConcatSeg s : segs) {
-        if (s.kind == ConcatSeg.Kind.TEXT) {
-          tpl.append(escapeForAbapStringTemplate(s.text));
-        } else {
-          tpl.append("{ ").append(expr(s.expr, ctx)).append(" }");
-        }
-      }
-      tpl.append("|");
-      return tpl.toString();
-    }
-
-    // otherwise: if it's a string literal => '...'
-    if (e.isStringLiteralExpr()) return "'" + e.asStringLiteralExpr().asString().replace("'", "''") + "'";
-    if (e.isCharLiteralExpr()) return "'" + String.valueOf(e.asCharLiteralExpr().asChar()).replace("'", "''") + "'";
-
-    // last resort: embed in template (safe for console)
-    return "|{ " + expr(e, ctx) + " }|";
-  }
-
-  private String expr(Expression e, Ctx ctx) {
-    if (e == null) return "''";
-
-    if (e.isEnclosedExpr()) return "(" + expr(e.asEnclosedExpr().getInner(), ctx) + ")";
 
     if (e.isThisExpr()) return "me";
     if (e.isSuperExpr()) return "super";
@@ -1109,18 +972,42 @@ public class JavaToAbapTranslator {
 
     if (e.isNameExpr()) {
       String n = e.asNameExpr().getNameAsString();
-      if (ctx.nameSubst.containsKey(n)) return ctx.nameSubst.get(n);
-      return resolveEnumConstantUnqualified(n, ctx).orElse(n);
+      return resolveEnumConstantUnqualified(n).orElse(n);
+    }
+
+    // ---- NEW: Java array access arr[i] -> substitute OR itab[ i + 1 ]
+    if (e.isArrayAccessExpr()) {
+      ArrayAccessExpr aae = e.asArrayAccessExpr();
+
+      if (aae.getName().isNameExpr() && aae.getIndex().isNameExpr()) {
+        String arr = aae.getName().asNameExpr().getNameAsString();
+        String idx = aae.getIndex().asNameExpr().getNameAsString();
+        String key = arr + "#" + idx;
+        if (arrayIndexSubst.containsKey(key)) return arrayIndexSubst.get(key);
+      }
+
+      String arr = expr(aae.getName());
+      Expression idxE = aae.getIndex();
+      if (idxE.isIntegerLiteralExpr()) {
+        int i0 = Integer.parseInt(idxE.asIntegerLiteralExpr().getValue());
+        return arr + "[ " + (i0 + 1) + " ]";
+      }
+      return arr + "[ " + expr(idxE) + " + 1 ]";
     }
 
     if (e.isFieldAccessExpr()) {
       FieldAccessExpr fa = e.asFieldAccessExpr();
 
+      // ---- NEW: arr.length -> lines( arr )
+      if (fa.getNameAsString().equals("length")) {
+        return "lines( " + expr(fa.getScope()) + " )";
+      }
+
       if (fa.getScope().isThisExpr()) return "me->" + fa.getNameAsString();
 
       if (fa.getScope().isNameExpr()) {
         String left = fa.getScope().asNameExpr().getNameAsString();
-        Optional<String> enumConst = resolveEnumConstantQualified(left, fa.getNameAsString(), ctx);
+        Optional<String> enumConst = resolveEnumConstantQualified(left, fa.getNameAsString());
         if (enumConst.isPresent()) return enumConst.get();
 
         if (looksLikeTypeName(left)) return "zcl_" + toSnakeLower(left) + "=>" + fa.getNameAsString();
@@ -1129,10 +1016,10 @@ public class JavaToAbapTranslator {
       }
 
       if (fa.getScope().isFieldAccessExpr()) {
-        return accessExpr(fa.getScope().asFieldAccessExpr(), ctx) + "->" + fa.getNameAsString();
+        return accessExpr(fa.getScope().asFieldAccessExpr()) + "->" + fa.getNameAsString();
       }
 
-      return expr(fa.getScope(), ctx) + "->" + fa.getNameAsString();
+      return expr(fa.getScope()) + "->" + fa.getNameAsString();
     }
 
     if (e.isIntegerLiteralExpr()) return e.asIntegerLiteralExpr().getValue();
@@ -1141,9 +1028,16 @@ public class JavaToAbapTranslator {
     if (e.isBooleanLiteralExpr()) return e.asBooleanLiteralExpr().getValue() ? "abap_true" : "abap_false";
     if (e.isStringLiteralExpr()) return "'" + e.asStringLiteralExpr().asString().replace("'", "''") + "'";
     if (e.isCharLiteralExpr()) return "'" + String.valueOf(e.asCharLiteralExpr().asChar()).replace("'", "''") + "'";
+    if (e.isEnclosedExpr()) return "(" + expr(e.asEnclosedExpr().getInner()) + ")";
 
     if (e.isBinaryExpr()) {
       BinaryExpr b = e.asBinaryExpr();
+
+      // ---- NEW: Java string concat with '+' -> ABAP string template
+      if (b.getOperator() == BinaryExpr.Operator.PLUS && isProbablyStringConcat(b)) {
+        return abapStringTemplateFromPlus(b);
+      }
+
       String op = switch (b.getOperator()) {
         case PLUS -> "+";
         case MINUS -> "-";
@@ -1159,22 +1053,15 @@ public class JavaToAbapTranslator {
         case OR -> "OR";
         default -> null;
       };
-      if (op != null) return expr(b.getLeft(), ctx) + " " + op + " " + expr(b.getRight(), ctx);
+      if (op != null) return expr(b.getLeft()) + " " + op + " " + expr(b.getRight());
     }
 
     if (e.isUnaryExpr()) {
       UnaryExpr u = e.asUnaryExpr();
       if (u.getOperator() == UnaryExpr.Operator.LOGICAL_COMPLEMENT) {
-        return "NOT ( " + expr(u.getExpression(), ctx) + " )";
+        return "NOT ( " + expr(u.getExpression()) + " )";
       }
       throw new UnsupportedExpression("Unary ++/-- als Expression nicht sicher in ABAP übersetzbar");
-    }
-
-    if (e.isConditionalExpr()) {
-      ConditionalExpr c = e.asConditionalExpr();
-      return "COND #( WHEN " + expr(c.getCondition(), ctx) +
-          " THEN " + expr(c.getThenExpr(), ctx) +
-          " ELSE " + expr(c.getElseExpr(), ctx) + " )";
     }
 
     if (e.isMethodCallExpr()) {
@@ -1184,18 +1071,28 @@ public class JavaToAbapTranslator {
         throw new UnsupportedExpression("System.out.* als Expression nicht sinnvoll");
       }
 
-      // list.get(0) -> list[ 1 ]
-      if (mc.getNameAsString().equals("get") && mc.getArguments().size() == 1 && mc.getScope().isPresent()) {
-        Expression idx = mc.getArgument(0);
-        String table = abapValue(mc.getScope().get(), ctx);
-        if (idx.isIntegerLiteralExpr()) {
-          int i0 = Integer.parseInt(idx.asIntegerLiteralExpr().getValue());
-          return table + "[ " + (i0 + 1) + " ]";
-        }
-        return table + "[ " + expr(idx, ctx) + " + 1 ]";
+      // ---- NEW: equals / equalsIgnoreCase
+      if (mc.getNameAsString().equals("equals") && mc.getArguments().size() == 1 && mc.getScope().isPresent()) {
+        return expr(mc.getScope().get()) + " = " + expr(mc.getArgument(0));
+      }
+      if (mc.getNameAsString().equals("equalsIgnoreCase") && mc.getArguments().size() == 1 && mc.getScope().isPresent()) {
+        return "to_upper( " + expr(mc.getScope().get()) + " ) = to_upper( " + expr(mc.getArgument(0)) + " )";
       }
 
-      throw new UnsupportedExpression("Method call als Expression nicht eindeutig (ABAP Parameternamen/Typen fehlen)");
+      // list.get(0) best-effort -> list[ 1 ]
+      if (mc.getNameAsString().equals("get") && mc.getArguments().size() == 1 && mc.getScope().isPresent()) {
+        Expression idx = mc.getArgument(0);
+        if (idx.isIntegerLiteralExpr()) {
+          int i0 = Integer.parseInt(idx.asIntegerLiteralExpr().getValue());
+          int i1 = i0 + 1;
+          String table = abapValue(mc.getScope().get());
+          return table + "[ " + i1 + " ]";
+        }
+        String table = abapValue(mc.getScope().get());
+        return table + "[ " + expr(idx) + " + 1 ]";
+      }
+
+      throw new UnsupportedExpression("Method call als Expression nicht eindeutig (ABAP Parameternamen/Tabellentyp fehlen)");
     }
 
     if (e.isObjectCreationExpr()) {
@@ -1206,18 +1103,66 @@ public class JavaToAbapTranslator {
       return "NEW " + mapJavaTypeToAbapClass(stripGeneric(oce.getTypeAsString())) + "( )";
     }
 
+    if (e.isConditionalExpr()) {
+      return "COND #( WHEN " + expr(e.asConditionalExpr().getCondition()) +
+          " THEN " + expr(e.asConditionalExpr().getThenExpr()) +
+          " ELSE " + expr(e.asConditionalExpr().getElseExpr()) + " )";
+    }
+
     throw new UnsupportedExpression("Expression-Typ nicht unterstützt: " + e.getClass().getSimpleName());
   }
 
-  private String abapValue(Expression scope, Ctx ctx) {
+  // ---- string concat helpers
+  private boolean isProbablyStringConcat(Expression e) {
+    return e.findFirst(StringLiteralExpr.class).isPresent() || e.findFirst(CharLiteralExpr.class).isPresent();
+  }
+
+  private String abapStringTemplateFromPlus(Expression e) {
+    List<Expression> parts = new ArrayList<>();
+    flattenPlus(e, parts);
+
+    StringBuilder tpl = new StringBuilder();
+    tpl.append("|");
+    for (Expression p : parts) {
+      if (p.isStringLiteralExpr()) {
+        tpl.append(escapeForAbapTemplate(p.asStringLiteralExpr().asString()));
+      } else if (p.isCharLiteralExpr()) {
+        tpl.append(escapeForAbapTemplate(String.valueOf(p.asCharLiteralExpr().asChar())));
+      } else {
+        tpl.append("{ ").append(expr(p)).append(" }");
+      }
+    }
+    tpl.append("|");
+    return tpl.toString();
+  }
+
+  private void flattenPlus(Expression e, List<Expression> out) {
+    if (e == null) return;
+    if (e.isEnclosedExpr()) { flattenPlus(e.asEnclosedExpr().getInner(), out); return; }
+
+    if (e.isBinaryExpr() && e.asBinaryExpr().getOperator() == BinaryExpr.Operator.PLUS) {
+      BinaryExpr b = e.asBinaryExpr();
+      flattenPlus(b.getLeft(), out);
+      flattenPlus(b.getRight(), out);
+    } else {
+      out.add(e);
+    }
+  }
+
+  private String escapeForAbapTemplate(String s) {
+    if (s == null) return "";
+    return s.replace("|", "||");
+  }
+
+  private String abapValue(Expression scope) {
     if (scope == null) return "me";
     if (scope.isThisExpr()) return "me";
     if (scope.isNameExpr()) return scope.asNameExpr().getNameAsString();
-    if (scope.isFieldAccessExpr()) return accessExpr(scope.asFieldAccessExpr(), ctx);
-    return expr(scope, ctx);
+    if (scope.isFieldAccessExpr()) return accessExpr(scope.asFieldAccessExpr());
+    return expr(scope);
   }
 
-  private String accessExpr(FieldAccessExpr fa, Ctx ctx) {
+  private String accessExpr(FieldAccessExpr fa) {
     Expression scope = fa.getScope();
     String name = fa.getNameAsString();
 
@@ -1230,13 +1175,13 @@ public class JavaToAbapTranslator {
     }
 
     if (scope.isFieldAccessExpr()) {
-      return accessExpr(scope.asFieldAccessExpr(), ctx) + "->" + name;
+      return accessExpr(scope.asFieldAccessExpr()) + "->" + name;
     }
 
-    return expr(scope, ctx) + "->" + name;
+    return expr(scope) + "->" + name;
   }
 
-  private String abapCallNoArgs(MethodCallExpr mc, Ctx ctx) {
+  private String abapCallNoArgs(MethodCallExpr mc) {
     String name = mc.getNameAsString();
 
     if (mc.getScope().isEmpty()) return "me->" + name + "( ).";
@@ -1252,30 +1197,30 @@ public class JavaToAbapTranslator {
     }
 
     if (scope.isFieldAccessExpr()) {
-      return accessExpr(scope.asFieldAccessExpr(), ctx) + "->" + name + "( ).";
+      return accessExpr(scope.asFieldAccessExpr()) + "->" + name + "( ).";
     }
 
-    return expr(scope, ctx) + "->" + name + "( ).";
+    return expr(scope) + "->" + name + "( ).";
   }
 
-  // =========================================================
+  // ===========================
   // new -> ABAP NEW
-  // =========================================================
-  private void emitNewVar(String varName, String declaredType, ObjectCreationExpr oce, IndentWriter out, int indent, Ctx ctx) {
+  // ===========================
+  private void emitNewVar(String varName, String declaredType, ObjectCreationExpr oce, StringBuilder out, int indent) {
     String created = stripGeneric(oce.getTypeAsString());
     String abapClass = mapJavaTypeToAbapClass(created);
 
-    out.line(indent, "DATA " + varName + " TYPE REF TO " + abapClass + ".");
+    emit(out, indent, "DATA " + varName + " TYPE REF TO " + abapClass + ".");
 
     if (!oce.getArguments().isEmpty()) {
       emitTodoJava(out, indent, varName + " = " + oce + ";", "Konstruktor-Argumente: ABAP braucht Parameternamen");
       return;
     }
 
-    out.line(indent, varName + " = NEW " + abapClass + "( ).");
+    emit(out, indent, varName + " = NEW " + abapClass + "( ).");
   }
 
-  private void emitNewAssign(String target, ObjectCreationExpr oce, IndentWriter out, int indent, Ctx ctx) {
+  private void emitNewAssign(String target, ObjectCreationExpr oce, StringBuilder out, int indent) {
     String created = stripGeneric(oce.getTypeAsString());
     String abapClass = mapJavaTypeToAbapClass(created);
 
@@ -1284,29 +1229,29 @@ public class JavaToAbapTranslator {
       return;
     }
 
-    out.line(indent, target + " = NEW " + abapClass + "( ).");
+    emit(out, indent, target + " = NEW " + abapClass + "( ).");
   }
 
-  // =========================================================
-  // Enums
-  // =========================================================
-  private void indexEnums(CompilationUnit cu, Ctx ctx) {
-    ctx.enumConstantsByType.clear();
-    ctx.enumTypesByConstant.clear();
+  // ===========================
+  // Enum collection + inference
+  // ===========================
+  private void indexEnums(CompilationUnit cu) {
+    enumConstantsByType.clear();
+    enumTypesByConstant.clear();
 
     for (EnumDeclaration ed : cu.findAll(EnumDeclaration.class)) {
       String type = ed.getNameAsString();
       List<String> constants = ed.getEntries().stream()
           .map(EnumConstantDeclaration::getNameAsString)
           .toList();
-      ctx.enumConstantsByType.put(type, constants);
+      enumConstantsByType.put(type, constants);
       for (String c : constants) {
-        ctx.enumTypesByConstant.computeIfAbsent(c, k -> new ArrayList<>()).add(type);
+        enumTypesByConstant.computeIfAbsent(c, k -> new ArrayList<>()).add(type);
       }
     }
   }
 
-  private void inferEnumsFromSwitches(CompilationUnit cu, Ctx ctx) {
+  private void inferEnumsFromSwitches(CompilationUnit cu) {
     for (SwitchStmt ss : cu.findAll(SwitchStmt.class)) {
       if (!ss.getSelector().isNameExpr()) continue;
 
@@ -1316,7 +1261,7 @@ public class JavaToAbapTranslator {
 
       typeName = stripGeneric(typeName);
       if (!looksLikeTypeName(typeName)) continue;
-      if (ctx.enumConstantsByType.containsKey(typeName)) continue;
+      if (enumConstantsByType.containsKey(typeName)) continue;
 
       List<String> labels = ss.getEntries().stream()
           .flatMap(e -> e.getLabels().stream())
@@ -1327,9 +1272,9 @@ public class JavaToAbapTranslator {
 
       if (labels.isEmpty()) continue;
 
-      ctx.enumConstantsByType.put(typeName, labels);
+      enumConstantsByType.put(typeName, labels);
       for (String c : labels) {
-        ctx.enumTypesByConstant.computeIfAbsent(c, k -> new ArrayList<>()).add(typeName);
+        enumTypesByConstant.computeIfAbsent(c, k -> new ArrayList<>()).add(typeName);
       }
     }
   }
@@ -1357,54 +1302,54 @@ public class JavaToAbapTranslator {
     return null;
   }
 
-  private void emitEnumDeclarationsSnippet(IndentWriter out, Ctx ctx) {
-    if (ctx.enumConstantsByType.isEmpty()) return;
+  private void emitEnumDeclarationsSnippet(StringBuilder out) {
+    if (enumConstantsByType.isEmpty()) return;
 
-    for (Map.Entry<String, List<String>> e : ctx.enumConstantsByType.entrySet()) {
+    for (Map.Entry<String, List<String>> e : enumConstantsByType.entrySet()) {
       String enumType = e.getKey();
       String ty = "ty_" + toSnakeLower(enumType);
 
-      out.line(0, "TYPES " + ty + " TYPE string.");
+      emit(out, 0, "TYPES " + ty + " TYPE string.");
       for (String c : e.getValue()) {
-        out.line(0, "CONSTANTS c_" + toSnakeLower(enumType) + "_" + toSnakeLower(c)
+        emit(out, 0, "CONSTANTS c_" + toSnakeLower(enumType) + "_" + toSnakeLower(c)
             + " TYPE " + ty + " VALUE '" + c + "'.");
       }
-      out.blank();
+      emit(out, 0, "");
     }
   }
 
-  private void emitEnumDeclarationsInClassPublic(IndentWriter out, Ctx ctx, int indent) {
-    if (ctx.enumConstantsByType.isEmpty()) return;
+  private void emitEnumDeclarationsInClassPublic(StringBuilder out) {
+    if (enumConstantsByType.isEmpty()) return;
 
-    out.line(indent, "\" --- enums (best-effort) ---");
-    for (Map.Entry<String, List<String>> e : ctx.enumConstantsByType.entrySet()) {
+    emit(out, 4, "\" --- enums (best-effort) ---");
+    for (Map.Entry<String, List<String>> e : enumConstantsByType.entrySet()) {
       String enumType = e.getKey();
       String ty = "ty_" + toSnakeLower(enumType);
-      out.line(indent, "TYPES " + ty + " TYPE string.");
+      emit(out, 4, "TYPES " + ty + " TYPE string.");
       for (String c : e.getValue()) {
-        out.line(indent, "CONSTANTS c_" + toSnakeLower(enumType) + "_" + toSnakeLower(c)
+        emit(out, 4, "CONSTANTS c_" + toSnakeLower(enumType) + "_" + toSnakeLower(c)
             + " TYPE " + ty + " VALUE '" + c + "'.");
       }
-      out.blank();
+      emit(out, 4, "");
     }
   }
 
-  private Optional<String> resolveEnumConstantQualified(String enumType, String constant, Ctx ctx) {
-    List<String> cs = ctx.enumConstantsByType.get(enumType);
+  private Optional<String> resolveEnumConstantQualified(String enumType, String constant) {
+    List<String> cs = enumConstantsByType.get(enumType);
     if (cs == null) return Optional.empty();
     if (!cs.contains(constant)) return Optional.empty();
     return Optional.of("c_" + toSnakeLower(enumType) + "_" + toSnakeLower(constant));
   }
 
-  private Optional<String> resolveEnumConstantUnqualified(String constant, Ctx ctx) {
-    List<String> types = ctx.enumTypesByConstant.getOrDefault(constant, List.of());
+  private Optional<String> resolveEnumConstantUnqualified(String constant) {
+    List<String> types = enumTypesByConstant.getOrDefault(constant, List.of());
     if (types.size() != 1) return Optional.empty();
-    return resolveEnumConstantQualified(types.get(0), constant, ctx);
+    return resolveEnumConstantQualified(types.get(0), constant);
   }
 
-  // =========================================================
+  // ===========================
   // System.out helpers
-  // =========================================================
+  // ===========================
   private boolean isSystemOutPrintln(MethodCallExpr mc) {
     if (!mc.getNameAsString().equals("println")) return false;
     if (mc.getScope().isEmpty()) return false;
@@ -1433,53 +1378,53 @@ public class JavaToAbapTranslator {
     return false;
   }
 
-  // =========================================================
+  // ===========================
   // Comments (Java -> ABAP)
-  // =========================================================
-  private void emitCompilationUnitHeaderComments(CompilationUnit cu, IndentWriter out) {
+  // ===========================
+  private void emitCompilationUnitHeaderComments(CompilationUnit cu, StringBuilder out) {
     if (cu == null) return;
     cu.getComment().ifPresent(c -> emitComment(c, out, 0));
   }
 
-  private void emitLeadingComments(Node node, IndentWriter out, int indent) {
+  private void emitLeadingComments(Node node, StringBuilder out, int indent) {
     if (node == null) return;
     node.getComment().ifPresent(c -> emitComment(c, out, indent));
   }
 
-  private void emitComment(Comment c, IndentWriter out, int indent) {
+  private void emitComment(Comment c, StringBuilder out, int indent) {
     if (c == null) return;
     String raw = c.getContent();
     if (raw == null) raw = "";
     raw = raw.replace("\r\n", "\n").replace("\r", "\n").trim();
 
     if (c instanceof LineComment) {
-      out.line(indent, "\" " + raw.trim());
+      emit(out, indent, "\" " + raw.trim());
       return;
     }
 
     if (c instanceof BlockComment || c instanceof JavadocComment) {
       for (String line : raw.split("\n")) {
         String t = line.strip();
-        if (!t.isEmpty()) out.line(indent, "\" " + t);
+        if (!t.isEmpty()) emit(out, indent, "\" " + t);
       }
     }
   }
 
-  // =========================================================
+  // ===========================
   // TODO output
-  // =========================================================
-  private void emitTodoJava(IndentWriter out, int indent, String javaCode, String reason) {
+  // ===========================
+  private void emitTodoJava(StringBuilder out, int indent, String javaCode, String reason) {
     String j = (javaCode == null ? "" : javaCode).replace("\r\n", "\n").replace("\r", "\n").trim();
     if (j.isEmpty()) {
-      out.line(indent, "\" TODO: (leer) (weil: " + safe(reason) + ")");
+      emit(out, indent, "\" TODO: (leer) (weil: " + safe(reason) + ")");
       return;
     }
 
     String[] lines = j.split("\n");
-    out.line(indent, "\" TODO: " + lines[0].trim() + (reason == null ? "" : "  (weil: " + safe(reason) + ")"));
+    emit(out, indent, "\" TODO: " + lines[0].trim() + (reason == null ? "" : "  (weil: " + safe(reason) + ")"));
     for (int i = 1; i < lines.length; i++) {
       String t = lines[i].trim();
-      if (!t.isEmpty()) out.line(indent, "\"       " + t);
+      if (!t.isEmpty()) emit(out, indent, "\"       " + t);
     }
   }
 
@@ -1488,19 +1433,19 @@ public class JavaToAbapTranslator {
     return s.replace("\"", "'").trim();
   }
 
-  // =========================================================
+  // ===========================
   // Type mapping
-  // =========================================================
-  private String mapTypeForAbap(String javaType, Ctx ctx) {
+  // ===========================
+  private String mapTypeForAbap(String javaType) {
     String tRaw = javaType == null ? "" : javaType.trim();
     String t = stripGeneric(tRaw);
 
     if (tRaw.endsWith("[]")) {
       String elem = tRaw.substring(0, tRaw.length() - 2).trim();
-      return "STANDARD TABLE OF " + mapTypeForAbap(elem, ctx) + " WITH EMPTY KEY";
+      return "STANDARD TABLE OF " + mapTypeForAbap(elem) + " WITH EMPTY KEY";
     }
 
-    if (ctx.enumConstantsByType.containsKey(t)) {
+    if (enumConstantsByType.containsKey(t)) {
       return "ty_" + toSnakeLower(t);
     }
 
@@ -1522,9 +1467,9 @@ public class JavaToAbapTranslator {
     return "zcl_" + toSnakeLower(t);
   }
 
-  // =========================================================
+  // ===========================
   // Parse robustness
-  // =========================================================
+  // ===========================
   private record ParseAttempt(boolean ok, CompilationUnit cu, String fixedSource, String errorMessage) {}
 
   private ParseAttempt tryParseCompilationUnit(String src) {
@@ -1591,9 +1536,9 @@ public class JavaToAbapTranslator {
     return out.toString();
   }
 
-  // =========================================================
+  // ===========================
   // Mixed extraction for snippet
-  // =========================================================
+  // ===========================
   private record Extracted(String extractedTypes, String remainingCode) {}
 
   private Extracted extractTopLevelTypeDeclsAnywhere(String src) {
@@ -1702,27 +1647,24 @@ public class JavaToAbapTranslator {
     return -1;
   }
 
-  // =========================================================
-  // Java main detection
-  // =========================================================
-  private Optional<MethodDeclaration> findJavaMain(ClassOrInterfaceDeclaration cls) {
-    for (MethodDeclaration md : cls.getMethods()) {
-      if (!md.getNameAsString().equals("main")) continue;
-      if (!md.isStatic()) continue;
-      if (!md.getType().isVoidType()) continue;
-      if (md.getParameters().size() != 1) continue;
-
-      Parameter p = md.getParameter(0);
-      String t = p.getTypeAsString().replace(" ", "");
-      // String[] args OR String... args
-      if (t.equals("String[]") || t.equals("String...")) return Optional.of(md);
-    }
-    return Optional.empty();
+  // ===========================
+  // Helpers
+  // ===========================
+  private static void emit(StringBuilder out, int indent, String line) {
+    out.append(" ".repeat(Math.max(0, indent))).append(line).append("\n");
   }
 
-  // =========================================================
-  // Helpers
-  // =========================================================
+  private String ensureTrailingNewline(StringBuilder out) {
+    String s = out.toString().replace("\r\n", "\n").replace("\r", "\n").trim();
+    return s.isEmpty() ? "\n" : (s + "\n");
+  }
+
+  private void resetState() {
+    enumConstantsByType.clear();
+    enumTypesByConstant.clear();
+    arrayIndexSubst.clear();
+  }
+
   private String normalize(String s) {
     if (s == null) return "";
     return s.replace("\r\n", "\n").replace("\r", "\n").trim();
@@ -1755,23 +1697,5 @@ public class JavaToAbapTranslator {
     if (e == null) return false;
     return e.isIntegerLiteralExpr() || e.isBooleanLiteralExpr() || e.isStringLiteralExpr()
         || e.isCharLiteralExpr() || e.isDoubleLiteralExpr() || e.isLongLiteralExpr();
-  }
-
-  // =========================================================
-  // Output helper
-  // =========================================================
-  private static final class IndentWriter {
-    private final StringBuilder sb = new StringBuilder();
-
-    void line(int indent, String line) {
-      sb.append(" ".repeat(Math.max(0, indent))).append(line).append("\n");
-    }
-
-    void blank() { sb.append("\n"); }
-
-    String finish() {
-      String s = sb.toString().replace("\r\n", "\n").replace("\r", "\n").trim();
-      return s.isEmpty() ? "\n" : (s + "\n");
-    }
   }
 }
