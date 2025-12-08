@@ -30,7 +30,9 @@ const $reset = $("reset");
 
 /* ===== Examples ===== */
 const EXAMPLES = {
-  snippet_print: `System.out.println(name);`,
+  snippet_print: `System.out.println("Name: " + name);
+    System.out.print(a + " " + b);
+    System.out.printf("Name: %s%n", name);`,
   snippet_if: `int y = x + 1;
 if (y > 10) {
   System.out.println(y);
