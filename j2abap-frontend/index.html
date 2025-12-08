@@ -9,15 +9,14 @@
 
   <title>Java to ABAP converter</title>
 
-  <!-- Optional: API Base zentral konfigurierbar (JS liest das – falls du es später nutzt) -->
   <meta name="api-base" content="https://scattered-lebbie-steven-illg-it-f8b8abdf.koyeb.app" />
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
 
-  <!-- Cache-Busting (wichtig für macOS/Safari/Pages Caches) -->
-  <link rel="stylesheet" href="style.css?v=ui-5" />
+  <!-- Cache-Busting -->
+  <link rel="stylesheet" href="style.css?v=ui-toolbar-1" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css">
 </head>
 
@@ -52,23 +51,25 @@
       </div>
     </header>
 
-    <!-- Beispiele: liegt direkt vor der Grid – und richtet sich an der ABAP-Spalte aus -->
+    <!-- Beispiele: Außen exakt wie Grid (Java | ABAP), innen Toolbar nur in ABAP-Spalte -->
     <div class="examples-row">
-      <label class="examples-label" for="examples">Beispiele</label>
+      <div class="examples-toolbar">
+        <label class="examples-label" for="examples">Beispiele</label>
 
-      <select id="examples" class="select">
-        <option value="snippet_print">Snippet: println(name)</option>
-        <option value="snippet_if">Snippet: if/else</option>
-        <option value="snippet_switch">Snippet: switch/case</option>
-        <option value="snippet_new">Snippet: Objekt instanziieren</option>
-        <option value="class_simple">Class: einfache Methode</option>
-        <option value="class_hello">Class: HelloWorld</option>
-        <option value="class_trycatch">Class: try/catch</option>
-        <option value="class_enum">Class: Enum</option>
-      </select>
+        <select id="examples" class="select">
+          <option value="snippet_print">Snippet: println(name)</option>
+          <option value="snippet_if">Snippet: if/else</option>
+          <option value="snippet_switch">Snippet: switch/case</option>
+          <option value="snippet_new">Snippet: Objekt instanziieren</option>
+          <option value="class_simple">Class: einfache Methode</option>
+          <option value="class_hello">Class: HelloWorld</option>
+          <option value="class_trycatch">Class: try/catch</option>
+          <option value="class_enum">Class: Enum</option>
+        </select>
 
-      <button id="loadExample" class="btn small" type="button">Laden</button>
-      <button id="reset" class="btn small ghost" type="button">Reset</button>
+        <button id="loadExample" class="btn small" type="button">Laden</button>
+        <button id="reset" class="btn small ghost" type="button">Reset</button>
+      </div>
     </div>
 
     <section class="grid">
@@ -123,6 +124,6 @@
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
 
-  <script src="app.js?v=ui-5"></script>
+  <script src="app.js?v=ui-toolbar-1"></script>
 </body>
 </html>
