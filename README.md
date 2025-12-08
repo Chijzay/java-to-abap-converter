@@ -32,6 +32,13 @@ https://chijzay.github.io/java-to-abap-converter/
   - Status mit LED-Anzeige
   - Reset-Button
 
+### Java und ABAP im Vergleich
+
+- ...
+- ..
+- ..
+
+
 ## Architektur
 
 **Frontend**
@@ -100,7 +107,7 @@ https://chijzay.github.io/java-to-abap-converter/
   - Methoden: `GET`, `POST`, `OPTIONS`
   - Headers: `Content-Type`
 
-## Limitations und bekannte Grenzen
+## Limitationen und bekannte Grenzen
 
 - Fokus liegt auf Subset von Java
 - Keine vollständige Java-Semantik, da keine vollständige ABAP-Entsprechung
