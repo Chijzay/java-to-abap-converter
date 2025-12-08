@@ -202,7 +202,6 @@ body{
   grid-template-columns: 1fr 1fr;
   gap: var(--gap);
 
-  /* nimmt den Resthöhe ein (wichtig für macOS) */
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -232,93 +231,86 @@ body{
   font-weight: 800;
 }
 
+@media (max-width: 1040px){
+  .grid{ grid-template-columns: 1fr; }
+}
+
 /* =========================================================
-   Beispiele: EXAKT über ABAP-Panel (gleiche Grid-Geometrie)
-   - nutzt exakt dieselben Spalten + gap wie .grid
-   - platziert eine eigene Toolbar in Spalte 2
+   Beispiele: Toolbar sitzt in ABAP-Spalte (perfekte Bündigkeit)
    ========================================================= */
 .examples-row{
   width: 100%;
   margin: 2px 0 0;
 
-  /* exakt wie .grid */
+  /* exakt wie .grid -> ABAP-Spalte sitzt identisch */
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--gap);
   align-items: center;
 }
 
-/* Toolbar sitzt in Spalte 2 und startet an deren linker Kante (bündig zur ABAP-Box) */
-.examples-row{
-  justify-items: start;
-}
-
-/* Die Elemente sollen als Reihe zusammenstehen, aber NICHT nach links "wegdriften" */
-.examples-row .examples-label,
-.examples-row #examples,
-.examples-row #loadExample,
-.examples-row #reset{
+/* Toolbar nur in Spalte 2 */
+.examples-toolbar{
   grid-column: 2;
+
+  display: grid;
+  grid-template-columns: auto minmax(280px, 520px) auto auto;
+  gap: 10px;
+  align-items: center;
 }
 
-/* Sub-Layout innerhalb Spalte 2: label | select | laden | reset */
-.examples-row{
-  /* Wir legen ein zweites Grid über die rechte Spalte, ohne HTML zu ändern:
-     -> wir definieren zusätzliche Spalten und lassen Spalte 1 weiterhin frei.
-     Damit ist "Start" exakt ABAP-Start. */
-  grid-template-columns: 1fr auto minmax(280px, 520px) auto auto;
-  gap: 10px; /* Toolbar darf enger sein als Editor-Gap */
+/* Label */
+.examples-label{
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
-/* Positionen (Spalte 1 bleibt leer und entspricht Java-Spalte) */
-.examples-row .examples-label{ grid-column: 2; align-self: center; white-space: nowrap; font-size: 12px; font-weight: 600; color: var(--muted); }
-.examples-row #examples{
-  grid-column: 3;
-
+/* Select */
+.select{
   height: 36px;
   padding: 0 10px;
   border-radius: 12px;
   border:1px solid var(--border);
   background: var(--card);
   color: var(--text);
-
   width: 100%;
-  min-width: 0; /* wichtig, damit minmax sauber greift */
+  min-width: 0;
 }
-.examples-row #loadExample{ grid-column: 4; white-space: nowrap; }
-.examples-row #reset{ grid-column: 5; white-space: nowrap; }
 
-/* Tablet/Mobile: folgt der Grid-Umstellung */
+/* Tablet/Mobile: Header wird einspaltig */
 @media (max-width: 1040px){
   .header{ grid-template-columns: 1fr; align-items:start; }
   .controls{ justify-content:flex-start; }
-  .grid{ grid-template-columns: 1fr; }
 
-  /* Beispiele: dann als normale Zeile (ohne Java-Spalte) */
+  /* Beispiele werden dann auch einspaltig */
   .examples-row{
-    grid-template-columns: auto 1fr auto auto;
+    grid-template-columns: 1fr;
     gap: 10px;
   }
-  .examples-row .examples-label{ grid-column: 1; }
-  .examples-row #examples{ grid-column: 2; }
-  .examples-row #loadExample{ grid-column: 3; }
-  .examples-row #reset{ grid-column: 4; }
+  .examples-toolbar{
+    grid-column: 1;
+    justify-self: start;
+    width: 100%;
+    max-width: none;
+    grid-template-columns: auto 1fr auto auto;
+  }
 }
 
 /* Handy Hochformat: Label + Select oben, Buttons nebeneinander unten */
 @media (max-width: 520px){
-  .examples-row{
+  .examples-toolbar{
     grid-template-columns: auto 1fr;
     grid-template-areas:
       "label select"
       "load  reset";
     gap: 10px;
   }
-
-  .examples-row .examples-label{ grid-area: label; }
-  .examples-row #examples{ grid-area: select; width: 100%; }
-  .examples-row #loadExample{ grid-area: load; width: 100%; }
-  .examples-row #reset{ grid-area: reset; width: 100%; }
+  .examples-label{ grid-area: label; }
+  #examples{ grid-area: select; }
+  #loadExample{ grid-area: load; width: 100%; }
+  #reset{ grid-area: reset; width: 100%; }
 }
 
 /* =========================================================
@@ -362,7 +354,6 @@ body{
 
   overflow: hidden;
   user-select: none;
-
   white-space: pre;
 }
 
