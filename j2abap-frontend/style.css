@@ -558,37 +558,3 @@ html{
     font-size: 16px;
   }
 }
-
-/* Beispiele oben in der Toolbar */
-.examples-top{
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  background: rgba(255,255,255,.70);
-  border-radius: 12px;
-}
-
-.examples-label{
-  font-size: 12px;
-  color: var(--muted);
-  font-weight: 600;
-  margin-right: 2px;
-}
-
-.examples-top .select{
-  min-width: 220px;
-}
-
-/* Auf kleinen Screens soll die Toolbar nicht überlaufen */
-@media (max-width: 760px){
-  .examples-top{
-    width: 100%;
-    justify-content: space-between;
-  }
-  .examples-top .select{
-    min-width: 0;
-    flex: 1;
-  }
-}
