@@ -558,3 +558,18 @@ html{
     font-size: 16px;
   }
 }
+
+/* Beispiele kompakt statt 100% Breite */
+#examples{
+  width: auto;            /* nicht full-width */
+  min-width: 260px;       /* angenehm lesbar */
+  max-width: 520px;       /* nicht zu breit */
+}
+
+@media (max-width: 760px){
+  #examples{
+    width: 100%;          /* auf Handy darf es ruhig breit sein */
+    min-width: 0;
+    max-width: none;
+  }
+}
