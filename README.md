@@ -54,38 +54,51 @@ https://chijzay.github.io/java-to-abap-converter/
 ## Projektstruktur
 
 ```
-.├─ .github/
+.
+├─ .github/
 │  └─ workflows/
-│     ├─ pages.yml                 # Deployt das Frontend (GitHub Pages)
-│     └─ push-backend-image.yml    # Baut & pusht das Backend-Docker-Image (CI)
+│     ├─ pages.yml                 # Deployt das statische Frontend (GitHub Pages) bei Änderungen in j2abap-frontend/
+│     └─ push-backend-image.yml    # Baut & pusht das Backend-Docker-Image nach GHCR bei Änderungen in j2abap-backend/
 │
 ├─ j2abap-backend/
-│  ├─ Dockerfile                   # Container-Build für Spring Boot Backend
-│  ├─ pom.xml                      # Maven Build/Dependencies
-│  ├─ .dockerignore                # Verkleinert Docker-Build-Context
-│  └─ src/
-│     └─ main/
-│        ├─ java/
-│        │  └─ de/example/j2abap/
-│        │     ├─ ApiApplication.java          # Spring Boot Entry Point
-│        │     ├─ core/
-│        │     │  └─ JavaToAbapTranslator.java # Übersetzungslogik
-│        │     └─ api/
-│        │        ├─ TranslateController.java  # REST: /api/translate (POST)
-│        │        ├─ HealthController.java     # REST: /api/health (GET)
-│        │        └─ CorsConfig.java           # CORS für Frontend-Domain(s)
-│        └─ resources/
-│           └─ application.properties          # Port/Config (z.B. server.port)
+│  ├─ Dockerfile                   # Multi-Stage: Maven Build → schlankes JRE-Image (PORT/8080); inkl. Debug-Checks im Build
+│  ├─ pom.xml                      # Maven/Spring Boot Backend; Dependencies u.a. spring-boot-starter-web + javaparser-core
+│  ├─ mvnw                         # Maven Wrapper (Unix/macOS)
+│  ├─ mvnw.cmd                     # Maven Wrapper (Windows)
+│  ├─ .dockerignore                # Verkleinert den Docker-Build-Context (schneller/sauberer Build)
+│  ├─ src/
+│  │  └─ main/
+│  │     ├─ java/
+│  │     │  └─ de/example/j2abap/
+│  │     │     ├─ ApiApplication.java          # Spring Boot Entry Point
+│  │     │     ├─ JavaToAbapTranslator.java    # Kernlogik: Mode auto/snippet/class; Parsing (JavaParser) + Orchestrierung
+│  │     │     ├─ StatementTranslator.java     # Übersetzt Statements (z.B. Block/If/Return/ExpressionStmt) nach ABAP
+│  │     │     ├─ ExpressionTranslator.java    # Übersetzt Expressions (Literals, Binary/Unary, Calls, Assignments, …)
+│  │     │     ├─ TypeMapper.java              # Java-Typen → ABAP-Typen (primitive & einfache Referenztypen)
+│  │     │     ├─ MethodSignatureBuilder.java  # Baut ABAP-Methodensignaturen (IMPORTING/RETURNING) aus MethodDeclaration
+│  │     │     ├─ AbapEmitter.java             # Ausgabe-Helper: Indentation + Zeilenaufbau (StringBuilder)
+│  │     │     ├─ api/
+│  │     │     │  ├─ TranslateController.java  # REST: POST /api/translate?mode=... (text/plain → text/plain)
+│  │     │     │  ├─ HealthController.java     # REST: GET /api/health (ok) inkl. Trailing-Slash-Variante
+│  │     │     │  ├─ CorsConfig.java           # CORS für GitHub Pages + lokale Dev-Hosts (GET/POST/OPTIONS)
+│  │     │     │  └─ ApiExceptionHandler.java  # Fängt JavaParser ParseProblemException → 400 + hilfreicher Hinweistext
+│  │     │     └─ util/
+│  │     │        └─ Strings.java              # Kleine Utils (z.B. ABAP-String-Escaping via Verdopplung von ')
+│  │     └─ resources/
+│  │        └─ application.properties          # Container-freundlich: server.port=${PORT:8080}; Actuator health; Logging
+│  └─ target/                     # (generiert) Maven-Build-Output; ist in .gitignore enthalten und sollte nicht versioniert sein
+│     ├─ classes/                  # Kompilierte .class + generierte Ressourcen
+│     └─ maven-status/             # Status-Dateien des Maven-Compiler-Plugins
 │
 ├─ j2abap-frontend/
-│  ├─ app.js                       # UI-Logik: Fetch, Highlighting, Line-Numbers
-│  ├─ index.html                   # Layout, Controls und Editor-Struktur
-│  └─ style.css                    # SAP/Fiori-like Styling
+│  ├─ index.html                   # Statisches UI (Editor/Controls); bindet u.a. Prism für Java-Highlighting ein
+│  ├─ app.js                       # UI-Logik: Request an Backend (/api/translate), Mode-Umschaltung, Highlighting, Copy/Download, Gutter/Line-Numbers
+│  └─ style.css                    # Styling (clean, “SAP/Fiori-like” Look & Feel)
 │
-├─ .gitattributes                  # EOL/CRLF-LF Regeln
-├─ .gitignore                      # Ignoriert Build/IDE/Node Artefakte
-├─ LICENSE                         # Portfolio Viewing Only License
-└─ README.md                       # Projektbeschreibung und Deploy
+├─ .gitattributes                  # Git/Text-EOL-Regeln (CRLF/LF konsistent halten)
+├─ .gitignore                      # Ignoriert typische Build-/IDE-Artefakte (u.a. target/)
+├─ LICENSE                         # Lizenzbedingungen (Portfolio-/Lern-/Demo-Kontext)
+└─ README.md                       # Projektübersicht, Demo-Link, Features, Deploy-/Betriebshinweise
 ```
 
 ## Deployment
