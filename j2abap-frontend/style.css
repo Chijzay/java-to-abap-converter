@@ -83,10 +83,7 @@ body{
 
 @media (min-width: 900px){
   body{ overflow: hidden; } /* keine Page-Scrollbars */
-
-  .wrap{
-    height: 100dvh;
-  }
+  .wrap{ height: 100dvh; }
 }
 
 /* =========================================================
@@ -198,120 +195,6 @@ body{
 .ghost{ background: rgba(255,255,255,.70); }
 
 /* =========================================================
-   Beispiele: exakt bündig zur ABAP-Spalte (wie Grid)
-   ========================================================= */
-
-/* 2 Spalten wie Grid – Inhalte werden in die rechte (ABAP) Spalte gelegt */
-.examples-row{
-  width: 100%;
-  margin: 2px 0 0;
-
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--gap);
-  align-items: center;
-}
-
-/* rechter Block (= ABAP-Spalte) */
-.examples-row .examples-label,
-.examples-row #examples,
-.examples-row #loadExample,
-.examples-row #reset{
-  grid-column: 2;
-}
-
-/* Wir ordnen die Elemente innerhalb der rechten Spalte als Reihe an */
-.examples-row{
-  /* "Row" im rechten Block simulieren */
-}
-.examples-row .examples-label{ justify-self: end; }
-
-.examples-row #examples{
-  justify-self: end;
-  width: min(520px, 52vw);
-  min-width: 280px;
-  max-width: 520px;
-
-  height: 36px;
-  padding: 0 10px;
-  border-radius: 12px;
-  border:1px solid var(--border);
-  background: var(--card);
-  color: var(--text);
-}
-
-/* Buttons rechts neben dem Select */
-.examples-row #loadExample,
-.examples-row #reset{
-  justify-self: end;
-  white-space: nowrap;
-}
-
-/* Desktop: rechte Spalte als inline Reihe – ohne HTML-Wrapper:
-   Wir nutzen grid-auto-flow über eine feinere Positionierung */
-@media (min-width: 1041px){
-  .examples-row{
-    grid-template-columns: 1fr auto auto auto;
-    gap: 10px;
-  }
-  .examples-row .examples-label{ grid-column: 2; justify-self: start; }
-  .examples-row #examples{ grid-column: 3; justify-self: end; }
-  .examples-row #loadExample{ grid-column: 4; justify-self: end; }
-  .examples-row #reset{ grid-column: 5; } /* wird ignoriert, weil nur 4 cols – daher: */
-  /* Korrigiert: 5 Spalten */
-  .examples-row{
-    grid-template-columns: 1fr auto minmax(280px, 520px) auto auto;
-  }
-  .examples-row .examples-label{ grid-column: 2; }
-  .examples-row #examples{ grid-column: 3; }
-  .examples-row #loadExample{ grid-column: 4; }
-  .examples-row #reset{ grid-column: 5; }
-}
-
-/* Tablet/Mobile: folgt der Grid-Umstellung */
-@media (max-width: 1040px){
-  .header{ grid-template-columns: 1fr; align-items:start; }
-  .controls{ justify-content:flex-start; }
-}
-
-/* Handy Hochformat: Label + Select oben, Buttons nebeneinander unten */
-@media (max-width: 520px){
-  .examples-row{
-    grid-template-columns: auto 1fr;
-    grid-template-areas:
-      "label select"
-      "load  reset";
-    gap: 10px;
-  }
-
-  .examples-row .examples-label{
-    grid-area: label;
-    justify-self: start;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--muted);
-    white-space: nowrap;
-  }
-
-  .examples-row #examples{
-    grid-area: select;
-    width: 100%;
-    min-width: 0;
-    max-width: none;
-  }
-
-  .examples-row #loadExample{
-    grid-area: load;
-    width: 100%;
-  }
-
-  .examples-row #reset{
-    grid-area: reset;
-    width: 100%;
-  }
-}
-
-/* =========================================================
    Grid + Panels
    ========================================================= */
 .grid{
@@ -349,8 +232,93 @@ body{
   font-weight: 800;
 }
 
+/* =========================================================
+   Beispiele: EXAKT über ABAP-Panel (gleiche Grid-Geometrie)
+   - nutzt exakt dieselben Spalten + gap wie .grid
+   - platziert eine eigene Toolbar in Spalte 2
+   ========================================================= */
+.examples-row{
+  width: 100%;
+  margin: 2px 0 0;
+
+  /* exakt wie .grid */
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--gap);
+  align-items: center;
+}
+
+/* Toolbar sitzt in Spalte 2 und startet an deren linker Kante (bündig zur ABAP-Box) */
+.examples-row{
+  justify-items: start;
+}
+
+/* Die Elemente sollen als Reihe zusammenstehen, aber NICHT nach links "wegdriften" */
+.examples-row .examples-label,
+.examples-row #examples,
+.examples-row #loadExample,
+.examples-row #reset{
+  grid-column: 2;
+}
+
+/* Sub-Layout innerhalb Spalte 2: label | select | laden | reset */
+.examples-row{
+  /* Wir legen ein zweites Grid über die rechte Spalte, ohne HTML zu ändern:
+     -> wir definieren zusätzliche Spalten und lassen Spalte 1 weiterhin frei.
+     Damit ist "Start" exakt ABAP-Start. */
+  grid-template-columns: 1fr auto minmax(280px, 520px) auto auto;
+  gap: 10px; /* Toolbar darf enger sein als Editor-Gap */
+}
+
+/* Positionen (Spalte 1 bleibt leer und entspricht Java-Spalte) */
+.examples-row .examples-label{ grid-column: 2; align-self: center; white-space: nowrap; font-size: 12px; font-weight: 600; color: var(--muted); }
+.examples-row #examples{
+  grid-column: 3;
+
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 12px;
+  border:1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+
+  width: 100%;
+  min-width: 0; /* wichtig, damit minmax sauber greift */
+}
+.examples-row #loadExample{ grid-column: 4; white-space: nowrap; }
+.examples-row #reset{ grid-column: 5; white-space: nowrap; }
+
+/* Tablet/Mobile: folgt der Grid-Umstellung */
 @media (max-width: 1040px){
+  .header{ grid-template-columns: 1fr; align-items:start; }
+  .controls{ justify-content:flex-start; }
   .grid{ grid-template-columns: 1fr; }
+
+  /* Beispiele: dann als normale Zeile (ohne Java-Spalte) */
+  .examples-row{
+    grid-template-columns: auto 1fr auto auto;
+    gap: 10px;
+  }
+  .examples-row .examples-label{ grid-column: 1; }
+  .examples-row #examples{ grid-column: 2; }
+  .examples-row #loadExample{ grid-column: 3; }
+  .examples-row #reset{ grid-column: 4; }
+}
+
+/* Handy Hochformat: Label + Select oben, Buttons nebeneinander unten */
+@media (max-width: 520px){
+  .examples-row{
+    grid-template-columns: auto 1fr;
+    grid-template-areas:
+      "label select"
+      "load  reset";
+    gap: 10px;
+  }
+
+  .examples-row .examples-label{ grid-area: label; }
+  .examples-row #examples{ grid-area: select; width: 100%; }
+  .examples-row #loadExample{ grid-area: load; width: 100%; }
+  .examples-row #reset{ grid-area: reset; width: 100%; }
 }
 
 /* =========================================================
