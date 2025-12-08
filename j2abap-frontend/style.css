@@ -577,9 +577,10 @@ html{
 /* ===== Beispiele: bündig + responsive (Desktop 1 Zeile, Mobile 2 Zeilen) ===== */
 .examples-row{
   width: 100%;
-  margin: 10px 0 14px;     /* bündig zur Grid-Box darunter */
+  margin: 10px 0 14px;
   display: flex;
   align-items: center;
+  justify-content: flex-end; /* <-- DAS macht es rechtsbündig */
   gap: 10px;
 }
 
