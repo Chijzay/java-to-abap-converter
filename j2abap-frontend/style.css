@@ -318,9 +318,6 @@ kbd{
 
 /* editor */
 
-@media (max-height: 820px){
-  .editor{ height: clamp(280px, 48vh, 640px); }
-}
 @media (max-width: 1040px){
   .header{ grid-template-columns: 1fr; align-items:start; }
   .controls{ justify-content:flex-start; }
