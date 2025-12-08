@@ -27,7 +27,7 @@ if (y > 10) {
 } else {
   System.out.println(0);
 }`,
-    snippet_switch: `int day = 5;
+  snippet_switch: `int day = 5;
 switch (day) {
   case 1:
     System.out.println("Monday");
@@ -38,12 +38,12 @@ switch (day) {
   default:
     System.out.println("Other");
 }`,
-  snippet_objinstanz: `Person p = new Person();
-    p.reset();
-    System.out.println("Instanz erstellt");`,
-    class_simple: `public class Demo {
+  snippet_obj: `Person p = new Person();
+  p.reset();
+  System.out.println("Instanz erstellt");`,
+  class_simple: `public class Demo {
   int plusOne(int x) { 
-  return x + 1; 
+    return x + 1; 
   }
 }`,
   class_hello: `/** HelloWorldApp prints "Hello World!" */
@@ -79,7 +79,7 @@ public class HelloWorldApp {
       default: return "Unbekannt";
     }
   }
-}`
+}`,
 
 };
 
