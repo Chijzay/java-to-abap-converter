@@ -526,6 +526,20 @@ kbd{
   .info-right{ align-items:flex-start; max-width: unset; }
 }
 
+.brand{
+  display:flex;
+  align-items:center;      
+  justify-content:flex-start;
+  gap:.6rem;
+  flex-wrap:wrap;
+  line-height:1.1;
+}
+
+.brand-text{
+  display:inline-flex;
+  align-items:baseline;      
+  gap:.35rem;
+}
 .badge-prototype{
   align-self:center;
-  transform: translateY(-3px);
+  transform: translateY(-2px);
