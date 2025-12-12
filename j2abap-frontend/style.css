@@ -528,5 +528,4 @@ kbd{
 
 .badge-prototype{
   align-self:center;
-  transform: translateY(-2px); /* optisch schön auf Höhe, gern -1px/-3px testen */
-}
+  transform: translateY(-3px);
