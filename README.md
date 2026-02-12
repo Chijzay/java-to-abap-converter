@@ -5,7 +5,8 @@ Das Frontend läuft auf GitHub Pages und das Backend als Spring Boot REST API au
 
 **Hinweis:** 
 
-Dieses Projekt ist ein Subset-Translator (Proof of Concept) auf AST-Basis. Da Java- und ABAP-Konzepte nicht immer 1:1 abbildbar sind, ist die Semantik nicht in allen Fällen garantiert. Unbekannte oder komplexe Konstrukte werden als `TODO` kommentiert und mit dem Original-Java-Code übernommen.
+Dieses Projekt ist ein Subset-Translator (Proof of Concept) auf AST-Basis. Da Java- und ABAP-Konzepte nicht immer 1:1 abbildbar sind, ist die Semantik nicht in allen Fällen garantiert. Unbekannte oder komplexe Konstrukte werden als `TODO` kommentiert.
+
 ## Demo
 
 Die Webapplikation ist unter folgendem Link erreichbar:
@@ -110,8 +111,8 @@ https://chijzay.github.io/java-to-abap-converter/
 - Backend (Koyeb)
 
   - Build über Dockerfile
-  - Port: Spring Boot läuft meist auf 8080 (Koyeb forwarded)
-  - Health Check Endpoint: /api/health
+  - Port: Spring Boot läuft auf 8080 (Koyeb forwarded)
+  - Health Check Endpoint: `/api/health`
 
 - `CORS`
  
